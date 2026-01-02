@@ -139,4 +139,13 @@ export const fetchTrailer = async (id: number, type: 'movie' | 'tv'): Promise<st
     }
 };
 
+export const getExternalId = async (id: number, type: 'movie' | 'tv') => {
+  try {
+    const response = await api.get(`/${type}/${id}/external_ids`);
+    return response.data.imdb_id; // Returns "tt1234567"
+  } catch (error) {
+    console.error(`Error fetching external IDs for ${type} ${id}:`, error);
+    return null;
+  }
+};
 export default api;
