@@ -63,3 +63,14 @@ export interface RowProps {
   onSelect: (movie: Movie) => void;
   isLargeRow?: boolean;
 }
+
+export interface AppSettings {
+  autoplayPreviews: boolean;
+  autoplayNextEpisode: boolean;
+  showSubtitles: boolean;
+  subtitleSize: 'small' | 'medium' | 'large';
+  subtitleColor: 'white' | 'yellow' | 'cyan';
+  subtitleBackground: 'none' | 'drop-shadow' | 'box';
+  subtitleOpacity: number; // 0 to 100
+  subtitleBlur: number;    // 0 to 20
+}

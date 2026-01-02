@@ -14,6 +14,7 @@ import MoviesPage from './pages/MoviesPage';
 import NewPopularPage from './pages/NewPopularPage';
 import MyListPage from './pages/MyListPage';
 import SearchResultsPage from './pages/SearchResultsPage';
+import SettingsPage from './pages/SettingsPage';
 
 const App: React.FC = () => {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
@@ -64,6 +65,8 @@ const App: React.FC = () => {
             return <MoviesPage onSelectMovie={setSelectedMovie} onPlay={handlePlay} />;
         case 'new':
             return <NewPopularPage onSelectMovie={setSelectedMovie} />;
+        case 'settings':
+            return <SettingsPage />;
         case 'home':
         default:
             return <HomePage onSelectMovie={setSelectedMovie} onPlay={handlePlay} />;

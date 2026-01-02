@@ -96,8 +96,9 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
           {/* Settings Icon - Replaces Notification Bell and Profile */}
           <div className="hidden md:flex items-center ml-2">
              <span 
-              className="material-icons text-white cursor-pointer hover:rotate-90 transition-transform duration-500 text-xl md:text-2xl" 
+              className={`material-icons cursor-pointer hover:rotate-90 transition-transform duration-500 text-xl md:text-2xl ${activeTab === 'settings' ? 'text-red-600' : 'text-white'}`}
               title="Settings"
+              onClick={() => handleTabClick('settings')}
              >
                settings
              </span>
@@ -124,6 +125,13 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
                 {item.label}
               </div>
             ))}
+            {/* Mobile Settings Option */}
+            <div 
+              onClick={() => handleTabClick('settings')}
+              className={`text-lg font-medium ${activeTab === 'settings' ? 'text-white font-bold' : 'text-gray-400'}`}
+            >
+              Settings
+            </div>
         </div>
       )}
     </nav>

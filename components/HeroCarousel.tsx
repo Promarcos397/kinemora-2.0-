@@ -47,24 +47,24 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
     fetchData();
   }, [fetchUrl]);
 
-  // Smart Auto-play Logic
+  // Carousel Slide Timer (Only runs if we aren't hovering/playing video)
   useEffect(() => {
-    if (isHovered || movies.length === 0 || showVideo) return;
+    if (isHovered || movies.length === 0) return;
     
     intervalRef.current = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % movies.length);
     }, 8000); 
 
     return () => clearInterval(intervalRef.current);
-  }, [movies.length, isHovered, showVideo]);
+  }, [movies.length, isHovered]);
 
-  // Hover Logic for Video Playback
+  // Hover Logic for Video Playback (Play on Hover, Pause on Leave)
   useEffect(() => {
     if (playerRef.current && isVideoReady && showVideo) {
         if (isHovered) {
-            try { playerRef.current.pauseVideo(); } catch(e) {}
-        } else {
             try { playerRef.current.playVideo(); } catch(e) {}
+        } else {
+            try { playerRef.current.pauseVideo(); } catch(e) {}
         }
     }
   }, [isHovered, isVideoReady, showVideo]);
@@ -124,7 +124,7 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
                     }
                 } catch(e) { }
             }
-        }, 2000);
+        }, 1000);
 
       } catch (e) { }
     };
@@ -151,12 +151,12 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Background Images */}
+      {/* Background Images - Visible by default, hidden when playing video on hover */}
       {movies.map((movie, index) => (
         <div
           key={movie.id}
           className={`absolute inset-0 transition-opacity duration-1000 ease-in-out z-0 ${
-            index === currentIndex && (!showVideo || !isVideoReady) ? "opacity-100" : "opacity-0"
+            index === currentIndex && (!showVideo || !isVideoReady || !isHovered) ? "opacity-100" : "opacity-0"
           }`}
         >
           <img 
@@ -167,8 +167,8 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
         </div>
       ))}
 
-      {/* Background Video */}
-      <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${showVideo && trailerKey && isVideoReady ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Background Video - Hidden by default, visible when hovered */}
+      <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${showVideo && trailerKey && isVideoReady && isHovered ? 'opacity-100' : 'opacity-0'}`}>
          {showVideo && trailerKey && (
              <div className="w-full h-full overflow-hidden pointer-events-none relative">
                  <YouTube 
@@ -177,15 +177,16 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
                     onReady={(e) => {
                         playerRef.current = e.target;
                         setIsVideoReady(true);
-                        if (isMuted) e.target.mute();
-                        else e.target.unMute();
+                        // Ensure it starts paused/muted initially if we aren't hovering yet
+                        e.target.mute(); 
+                        if(!isHovered) e.target.pauseVideo();
                     }}
                     onStateChange={(e) => {
                         if (e.data === 1) setIsVideoReady(true);
                     }}
                     opts={{
                         playerVars: {
-                            autoplay: 1,
+                            autoplay: 1, // Autoplay to get it ready, but we control via onReady/useEffect
                             controls: 0,
                             disablekb: 1,
                             loop: 1,
@@ -251,9 +252,9 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controls (Mute Button) - Only visible when video is playing/hovered */}
       <div className="absolute right-0 bottom-1/3 flex flex-col items-end space-y-4 z-30 pointer-events-auto">
-          {showVideo && trailerKey && isVideoReady && (
+          {showVideo && trailerKey && isVideoReady && isHovered && (
               <button 
                 onClick={() => setIsMuted(!isMuted)}
                 className="mr-4 md:mr-12 w-8 h-8 md:w-10 md:h-10 border border-white/50 rounded-full flex items-center justify-center bg-black/20 hover:bg-white/10 hover:border-white transition backdrop-blur-md group"
