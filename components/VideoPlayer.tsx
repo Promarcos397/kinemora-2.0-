@@ -3,7 +3,6 @@ import ReactPlayer from 'react-player';
 import axios from 'axios';
 import { Movie, Episode } from '../types';
 import { getSeasonDetails, getMovieDetails, getExternalId } from '../services/api';
-import { IMG_PATH } from '../constants';
 
 interface VideoPlayerProps {
   movie: Movie;
@@ -12,7 +11,7 @@ interface VideoPlayerProps {
   onClose: () => void;
 }
 
-// Workaround for ReactPlayer type definition issue
+// Workaround for ReactPlayer type definition issue in some environments
 const ReactPlayerAny = ReactPlayer as any;
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 1, onClose }) => {
