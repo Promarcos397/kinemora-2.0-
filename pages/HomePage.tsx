@@ -12,7 +12,7 @@ interface PageProps {
 }
 
 const HomePage: React.FC<PageProps> = ({ onSelectMovie, onPlay }) => {
-  const { myList } = useGlobalContext();
+  const { myList, continueWatching } = useGlobalContext();
   const [recommendationMovie, setRecommendationMovie] = useState<Movie | null>(null);
   const [recommendations, setRecommendations] = useState<Movie[]>([]);
 
@@ -34,9 +34,14 @@ const HomePage: React.FC<PageProps> = ({ onSelectMovie, onPlay }) => {
   return (
     <>
       <HeroCarousel onSelect={onSelectMovie} onPlay={onPlay} fetchUrl={REQUESTS.fetchNetflixOriginals} />
-      {/* Removed overflow-hidden to allow cards to pop over the hero section */}
+      {/* Main Content */}
       <main className="relative z-10 pb-12 -mt-12 sm:-mt-20 md:-mt-32 space-y-6 md:space-y-10">
         
+        {/* Continue Watching Row - Pinned to top if exists */}
+        {continueWatching.length > 0 && (
+            <Row title="Continue Watching" data={continueWatching} onSelect={onSelectMovie} />
+        )}
+
         {myList.length > 0 && <Row title="My List" data={myList} onSelect={onSelectMovie} />}
         
         {/* Dynamic Recommendation Row */}

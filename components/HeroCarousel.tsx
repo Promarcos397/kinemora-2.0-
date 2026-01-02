@@ -58,6 +58,17 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
     return () => clearInterval(intervalRef.current);
   }, [movies.length, isHovered, showVideo]);
 
+  // Hover Logic for Video Playback
+  useEffect(() => {
+    if (playerRef.current && isVideoReady && showVideo) {
+        if (isHovered) {
+            try { playerRef.current.pauseVideo(); } catch(e) {}
+        } else {
+            try { playerRef.current.playVideo(); } catch(e) {}
+        }
+    }
+  }, [isHovered, isVideoReady, showVideo]);
+
   // Scroll Listener
   useEffect(() => {
     const handleScroll = () => {
@@ -72,11 +83,11 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
 
   // Sync mute state with player
   useEffect(() => {
-    if (playerRef.current) {
+    if (playerRef.current && isVideoReady) {
         if (isMuted) playerRef.current.mute();
         else playerRef.current.unMute();
     }
-  }, [isMuted]);
+  }, [isMuted, isVideoReady]);
 
   // Handle Slide Change
   useEffect(() => {
