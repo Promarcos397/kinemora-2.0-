@@ -23,7 +23,7 @@ export const getMovieVideos = async (id: number, type: 'movie' | 'tv') => {
 export const getMovieImages = async (id: number, type: 'movie' | 'tv') => {
   try {
     const response = await api.get(`/${type}/${id}/images`, {
-        params: { include_image_language: 'en,null' }
+      params: { include_image_language: 'en,null' }
     });
     return response.data;
   } catch (error) {
@@ -43,23 +43,33 @@ export const getMovieCredits = async (id: number, type: 'movie' | 'tv') => {
 };
 
 export const getMovieDetails = async (id: number, type: 'movie' | 'tv') => {
-    try {
-        const response = await api.get(`/${type}/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error(`Error fetching details for ${type} ${id}:`, error);
-        return null;
-    }
+  try {
+    const response = await api.get(`/${type}/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching details for ${type} ${id}:`, error);
+    return null;
+  }
 };
 
 export const getSeasonDetails = async (id: number, seasonNumber: number) => {
-    try {
-        const response = await api.get(`/tv/${id}/season/${seasonNumber}`);
-        return response.data.episodes || [];
-    } catch (error) {
-        console.error(`Error fetching season ${seasonNumber} for tv ${id}:`, error);
-        return [];
-    }
+  try {
+    const response = await api.get(`/tv/${id}/season/${seasonNumber}`);
+    return response.data.episodes || [];
+  } catch (error) {
+    console.error(`Error fetching season ${seasonNumber} for tv ${id}:`, error);
+    return [];
+  }
+};
+
+export const getExternalIds = async (id: number, type: 'movie' | 'tv') => {
+  try {
+    const response = await api.get(`/${type}/${id}/external_ids`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching external IDs for ${type} ${id}:`, error);
+    return null;
+  }
 };
 
 export const getRecommendations = async (id: number, type: 'movie' | 'tv') => {
@@ -75,10 +85,10 @@ export const getRecommendations = async (id: number, type: 'movie' | 'tv') => {
 export const searchMovies = async (query: string) => {
   try {
     const response = await api.get<TMDBResponse>('/search/multi', {
-        params: { 
-            query, 
-            include_adult: false 
-        }
+      params: {
+        query,
+        include_adult: false
+      }
     });
     return response.data.results;
   } catch (error) {
@@ -89,54 +99,63 @@ export const searchMovies = async (query: string) => {
 
 // Generic fetcher that can handle full URLs (axios ignores baseURL if url is absolute)
 export const fetchData = async (url: string) => {
-    try {
-        const response = await api.get<TMDBResponse>(url);
-        return response.data.results;
-    } catch (error) {
-        console.error("Fetch error", error);
-        return [];
-    }
+  try {
+    const response = await api.get<TMDBResponse>(url);
+    return response.data.results;
+  } catch (error) {
+    console.error("Fetch error", error);
+    return [];
+  }
 }
 
 /**
- * Fetches the best available YouTube trailer for a given movie or TV show.
- * Priority:
- * 1. Site: YouTube
- * 2. Type: Trailer
- * 3. Fallback: First available YouTube video.
+ * Fetches a list of available YouTube videos for a given movie or TV show,
+ * sorted by priority:
+ * 1. Type: Trailer
+ * 2. Type: Teaser
+ * 3. Type: Clip
+ * 4. Type: Featurette
+ * 5. Other types
  * 
- * Note: We intentionally DO NOT prioritize 'Official' trailers because they often
- * have strict embedding restrictions (Error 150) preventing playback on external sites.
+ * Returns an array of YouTube keys.
  */
+export const fetchTrailers = async (id: number, type: 'movie' | 'tv'): Promise<string[]> => {
+  try {
+    const videos = await getMovieVideos(id, type);
+
+    if (!videos || videos.length === 0) return [];
+
+    // Filter for YouTube videos only
+    const youtubeVideos = videos.filter(v => v.site === "YouTube");
+
+    if (youtubeVideos.length === 0) return [];
+
+    // Sort by priority
+    const typePriority: { [key: string]: number } = {
+      "Trailer": 1,
+      "Teaser": 2,
+      "Clip": 3,
+      "Featurette": 4
+    };
+
+    const sortedVideos = youtubeVideos.sort((a, b) => {
+      const priorityA = typePriority[a.type] || 99;
+      const priorityB = typePriority[b.type] || 99;
+      return priorityA - priorityB;
+    });
+
+    return sortedVideos.map(v => v.key);
+
+  } catch (error) {
+    console.error("Error in fetchTrailers:", error);
+    return [];
+  }
+};
+
+// Deprecated: Wraps fetchTrailers for backward compatibility (returns first result)
 export const fetchTrailer = async (id: number, type: 'movie' | 'tv'): Promise<string | null> => {
-    try {
-        const videos = await getMovieVideos(id, type);
-        
-        if (!videos || videos.length === 0) return null;
-
-        // Filter for YouTube videos only
-        const youtubeVideos = videos.filter(v => v.site === "YouTube");
-        
-        if (youtubeVideos.length === 0) return null;
-
-        // 1. Filter by Type "Trailer"
-        const trailers = youtubeVideos.filter(v => v.type === "Trailer");
-
-        if (trailers.length > 0) {
-            // Return first found trailer.
-            // Prioritizing 'official' often leads to Error 150 (Embed Blocked).
-            // Non-official uploads (e.g. from aggregators like 'Rotten Tomatoes Trailers') 
-            // are more likely to allow embedding.
-            return trailers[0].key;
-        }
-
-        // 2. Fallback to first available YouTube video if no "Trailer" type exists
-        return youtubeVideos[0].key;
-
-    } catch (error) {
-        console.error("Error in fetchTrailer:", error);
-        return null;
-    }
+  const trailers = await fetchTrailers(id, type);
+  return trailers.length > 0 ? trailers[0] : null;
 };
 
 export default api;

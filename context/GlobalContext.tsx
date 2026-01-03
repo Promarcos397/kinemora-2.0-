@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Movie, AppSettings } from '../types';
 
 interface GlobalContextType {
@@ -16,11 +16,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoplayPreviews: true,
   autoplayNextEpisode: true,
   showSubtitles: true,
-  subtitleSize: 'medium',
+  subtitleSize: 'small',
   subtitleColor: 'white',
-  subtitleBackground: 'drop-shadow',
-  subtitleOpacity: 60,
-  subtitleBlur: 4,
+  subtitleBackground: 'none', // Default Window OFF
+  subtitleOpacity: 75,
+  subtitleBlur: 0,
+  subtitleFontFamily: 'monospace', // Consolas default
+  subtitleEdgeStyle: 'none', // No effect default
+  subtitleWindowColor: 'black',
 };
 
 export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -47,11 +50,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // Settings State
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
-        const saved = localStorage.getItem('kinemora-settings');
-        // Merge with defaults to ensure new fields (opacity/blur) exist if loading old localstorage
-        return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+      const saved = localStorage.getItem('kinemora-settings');
+      // Merge with defaults to ensure new fields (opacity/blur) exist if loading old localstorage
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
     } catch {
-        return DEFAULT_SETTINGS;
+      return DEFAULT_SETTINGS;
     }
   });
 
@@ -67,10 +70,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // Persist Settings
   useEffect(() => {
-      localStorage.setItem('kinemora-settings', JSON.stringify(settings));
+    localStorage.setItem('kinemora-settings', JSON.stringify(settings));
   }, [settings]);
 
-  const toggleList = (movie: Movie) => {
+  const toggleList = useCallback((movie: Movie) => {
     setMyList((prev) => {
       const exists = prev.find((m) => m.id === movie.id);
       if (exists) {
@@ -78,20 +81,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       return [...prev, movie];
     });
-  };
+  }, []);
 
-  const addToHistory = (movie: Movie) => {
+  const addToHistory = useCallback((movie: Movie) => {
     setContinueWatching((prev) => {
+      // Prevent redundant updates if the movie is already at the top
+      if (prev.length > 0 && prev[0].id === movie.id) {
+        return prev;
+      }
       // Remove if exists to bubble it to the top
       const filtered = prev.filter((m) => m.id !== movie.id);
       // Add to front, limit to 20 items
       return [movie, ...filtered].slice(0, 20);
     });
-  };
+  }, []);
 
-  const updateSettings = (newSettings: Partial<AppSettings>) => {
-      setSettings(prev => ({ ...prev, ...newSettings }));
-  };
+  const updateSettings = useCallback((newSettings: Partial<AppSettings>) => {
+    setSettings(prev => ({ ...prev, ...newSettings }));
+  }, []);
 
   return (
     <GlobalContext.Provider value={{ myList, continueWatching, settings, toggleList, addToHistory, updateSettings }}>

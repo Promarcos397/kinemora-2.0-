@@ -13,7 +13,7 @@ export const REQUESTS = {
   fetchRomanceMovies: `${BASE_URL}/discover/movie?api_key=${API_KEY}&with_genres=10749&language=en-US`,
   fetchDocumentaries: `${BASE_URL}/discover/movie?api_key=${API_KEY}&with_genres=99&language=en-US`,
   fetchSciFiMovies: `${BASE_URL}/discover/movie?api_key=${API_KEY}&with_genres=878&language=en-US`,
-  
+
   // TV Specifics
   fetchActionTV: `${BASE_URL}/discover/tv?api_key=${API_KEY}&with_genres=10759&language=en-US`,
   fetchComedyTV: `${BASE_URL}/discover/tv?api_key=${API_KEY}&with_genres=35&language=en-US`,

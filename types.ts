@@ -19,6 +19,7 @@ export interface Movie {
   runtime?: number;
   number_of_seasons?: number;
   genres?: { id: number; name: string }[];
+  imdb_id?: string;
 }
 
 export interface Episode {
@@ -68,9 +69,14 @@ export interface AppSettings {
   autoplayPreviews: boolean;
   autoplayNextEpisode: boolean;
   showSubtitles: boolean;
-  subtitleSize: 'small' | 'medium' | 'large';
-  subtitleColor: 'white' | 'yellow' | 'cyan';
-  subtitleBackground: 'none' | 'drop-shadow' | 'box';
+  subtitleSize: 'tiny' | 'small' | 'medium' | 'large' | 'huge';
+  subtitleColor: 'white' | 'yellow' | 'cyan' | 'green' | 'magenta' | 'red' | 'blue' | 'black';
+  subtitleBackground: 'none' | 'box'; // Simplified: either no background or a box (window)
   subtitleOpacity: number; // 0 to 100
   subtitleBlur: number;    // 0 to 20
+
+  // New Customizations
+  subtitleFontFamily: 'sans-serif' | 'serif' | 'monospace' | 'cursive' | 'display' | 'typewriter' | 'print' | 'block' | 'casual' | 'small-caps';
+  subtitleEdgeStyle: 'none' | 'outline' | 'drop-shadow' | 'raised' | 'depressed' | 'uniform';
+  subtitleWindowColor: 'black' | 'white' | 'blue';
 }
