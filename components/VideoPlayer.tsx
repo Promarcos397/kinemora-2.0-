@@ -155,7 +155,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
     const [subtitleLanguage, setSubtitleLanguage] = useState<string | null>(null);
 
     const [showSkipIntro, setShowSkipIntro] = useState(false);
-    const [introShown, setIntroShown] = useState(false);  // Track if intro has been triggered for this episode
+    const introShownRef = useRef(false);  // Track if intro has been triggered for this episode (Ref to avoid stale closure)
     const [showRating, setShowRating] = useState(false);
     const [showNextEp, setShowNextEp] = useState(false);
 
@@ -378,9 +378,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                 setProgress(percentage);
 
                 // Skip Intro Logic (TV Only) - Trigger at 3s
-                if (mediaType === 'tv' && !introShown && video.currentTime > 3) {
+                if (mediaType === 'tv' && !introShownRef.current && video.currentTime > 3) {
                     setShowSkipIntro(true);
-                    setIntroShown(true);
+                    introShownRef.current = true;
                 }
 
                 // Next Episode Logic
@@ -451,7 +451,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         setCurrentEpisode(ep.episode_number);
         setProgress(0);
         setShowSkipIntro(false);
-        setIntroShown(false);
+        introShownRef.current = false;
         setShowNextEp(false);
         setCaptions([]);
         setQualities([]);

@@ -1,0 +1,39 @@
+# Future Feature Ideas for Kinemora
+
+1. **Watch Party Mode**
+   - Synchronized playback with friends using WebSockets or Firebase.
+   - Real-time chat overlay during movies/episodes.
+
+2. **Multi-Profile Support**
+   - Allow creating multiple user profiles (e.g., "Kids", "Guest", "Personal").
+   - Separate watch history and "My List" for each profile.
+
+3. **"Continue Watching" Row**
+   - A dedicated row on the Home Screen showing partially watched content.
+   - Progress bars overlaid on thumbnails showing exactly where you left off.
+
+4. **Expanded "More Like This" & Trailers**
+   - Enhance the Info Modal to show a grid of similar recommendations.
+   - Integrate YouTube API to play trailers directly within the modal.
+
+5. **Advanced Search & Filtering**
+   - Filter by Genre, Year, Rating, and Language simultaneously.
+   - Save recent search queries for quick access.
+
+6. **PWA (Progressive Web App) & Offline Mode**
+   - Make the app installable on desktop and mobile.
+   - Implement basic offline caching for UI assets (Service Workers).
+
+7. **Chromecast / AirPlay Support**
+   - dedicated casting button in the Video Player to stream content to TV.
+   - Custom receiver app for better branding on the big screen.
+
+8. **User Reviews & Social Integration**
+   - Integrate Letterboxd or TMDB reviews into the movie details.
+   - Allow users to rate content and share their "Watched" status to social media.
+
+9. **Picture-in-Picture (PiP) Browsing**
+   - Allow the video player to minimize to the corner so users can browse other pages while watching.
+
+10. **Voice Search**
+    - Add a microphone icon to the search bar to allow voice queries.
