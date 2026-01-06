@@ -22,13 +22,13 @@ const SubtitleSection: React.FC<SubtitleSectionProps> = ({ settings, updateSetti
 
             {/* Live Preview - No Header */}
             <div className="w-full mb-6">
-                <div className="h-56 md:h-72 w-full bg-black relative rounded-xl overflow-hidden border border-white/10">
+                <div className="h-56 md:h-72 w-full bg-black relative rounded-sm overflow-hidden border border-white/10">
                     <SubtitlePreview settings={settings} backdropUrl={previewBackdrop} />
                 </div>
             </div>
 
             {/* Controls */}
-            <div className="bg-[#141414] border border-white/5 rounded-xl overflow-hidden">
+            <div className="bg-[#141414] border border-white/5 rounded-sm overflow-hidden">
                 <div className="p-6">
                     <SubtitleSettings settings={settings} updateSettings={updateSettings} />
                 </div>

@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
     },
+    base: './', // CRITICAL for Electron: ensures relative path asset loading
     css: {
       postcss: {
         plugins: [
@@ -27,6 +28,8 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@plib': path.resolve(__dirname, 'services/stream/p-stream-library/src'),
+        '@p-stream/providers': path.resolve(__dirname, 'services/stream/p-stream-library/src/index.ts'),
       }
     }
   };

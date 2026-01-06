@@ -86,7 +86,7 @@ const SubtitleSettings: React.FC<SubtitleSettingsProps> = ({ settings, updateSet
                 {/* 2. Window / Background Section */}
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider">Window Background</h3>
+                        <h3 className="text-white/60 text-xs uppercase tracking-wider">Window Background</h3>
                         <SettingsToggle
                             label=""
                             checked={settings.subtitleBackground === 'box'}

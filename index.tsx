@@ -1,7 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { HashRouter } from 'react-router-dom';
 import App from './App';
 import { GlobalProvider } from './context/GlobalContext';
+import { TitleProvider } from './context/TitleContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
@@ -12,9 +14,13 @@ if (!rootElement) {
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
-  <GlobalProvider>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </GlobalProvider>
+  <TitleProvider>
+    <GlobalProvider>
+      <ErrorBoundary>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </ErrorBoundary>
+    </GlobalProvider>
+  </TitleProvider>
 );

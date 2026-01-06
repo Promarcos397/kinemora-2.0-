@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppSettings } from '../../types';
 import { SettingsToggle } from '../ui/SettingsUI';
+import { PlayCircleIcon, QueueIcon } from '@phosphor-icons/react';
 
 interface PlaybackSectionProps {
     settings: AppSettings;
@@ -10,7 +11,7 @@ interface PlaybackSectionProps {
 const PlaybackSection: React.FC<PlaybackSectionProps> = ({ settings, updateSettings }) => {
     return (
         <div className="space-y-8 animate-fadeIn">
-            <div className="bg-[#141414] border border-white/5 rounded-xl overflow-hidden">
+            <div className="bg-[#141414] border border-white/5 rounded-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
                     <h3 className="font-bold text-white text-lg">Autoplay Controls</h3>
                 </div>
@@ -20,7 +21,7 @@ const PlaybackSection: React.FC<PlaybackSectionProps> = ({ settings, updateSetti
                         subLabel="Automatically play trailers while browsing on all devices."
                         checked={settings.autoplayPreviews}
                         onChange={() => updateSettings({ autoplayPreviews: !settings.autoplayPreviews })}
-                        icon="play_circle_filled"
+                        icon={<PlayCircleIcon size={24} />}
                     />
 
                     <SettingsToggle
@@ -28,7 +29,7 @@ const PlaybackSection: React.FC<PlaybackSectionProps> = ({ settings, updateSetti
                         subLabel="Automatically start the next episode."
                         checked={settings.autoplayNextEpisode}
                         onChange={() => updateSettings({ autoplayNextEpisode: !settings.autoplayNextEpisode })}
-                        icon="queue_play_next"
+                        icon={<QueueIcon size={24} />}
                     />
                 </div>
             </div>

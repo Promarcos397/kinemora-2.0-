@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Movie, AppSettings } from '../types';
 
+interface VideoState {
+  time: number;
+  videoId?: string;
+}
+
 interface GlobalContextType {
   myList: Movie[];
   continueWatching: Movie[];
@@ -8,6 +13,10 @@ interface GlobalContextType {
   toggleList: (movie: Movie) => void;
   addToHistory: (movie: Movie) => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
+  videoStates: { [key: number]: VideoState };
+  updateVideoState: (movieId: number, time: number, videoId?: string) => void;
+  getVideoState: (movieId: number) => VideoState | undefined;
+  clearVideoState: (movieId: number) => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -16,13 +25,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoplayPreviews: true,
   autoplayNextEpisode: true,
   showSubtitles: true,
-  subtitleSize: 'small',
+  subtitleSize: 'medium',
   subtitleColor: 'white',
   subtitleBackground: 'none', // Default Window OFF
   subtitleOpacity: 75,
   subtitleBlur: 0,
   subtitleFontFamily: 'monospace', // Consolas default
-  subtitleEdgeStyle: 'none', // No effect default
+  subtitleEdgeStyle: 'drop-shadow', // Drop shadow effect
   subtitleWindowColor: 'black',
 };
 
@@ -57,6 +66,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return DEFAULT_SETTINGS;
     }
   });
+
+  // Video Sync State (Ephemeral) - Now stores both time AND videoId
+  const [videoStates, setVideoStates] = useState<{ [key: number]: VideoState }>({});
 
   // Persist My List
   useEffect(() => {
@@ -100,8 +112,39 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setSettings(prev => ({ ...prev, ...newSettings }));
   }, []);
 
+  // Updated function to store both time and videoId
+  const updateVideoState = useCallback((movieId: number, time: number, videoId?: string) => {
+    setVideoStates(prev => ({
+      ...prev,
+      [movieId]: { time, videoId: videoId || prev[movieId]?.videoId }
+    }));
+  }, []);
+
+  const getVideoState = useCallback((movieId: number): VideoState | undefined => {
+    return videoStates[movieId];
+  }, [videoStates]);
+
+  const clearVideoState = useCallback((movieId: number) => {
+    setVideoStates(prev => {
+      const next = { ...prev };
+      delete next[movieId];
+      return next;
+    });
+  }, []);
+
   return (
-    <GlobalContext.Provider value={{ myList, continueWatching, settings, toggleList, addToHistory, updateSettings }}>
+    <GlobalContext.Provider value={{
+      myList,
+      continueWatching,
+      settings,
+      toggleList,
+      addToHistory,
+      updateSettings,
+      videoStates,
+      updateVideoState,
+      getVideoState,
+      clearVideoState
+    }}>
       {children}
     </GlobalContext.Provider>
   );

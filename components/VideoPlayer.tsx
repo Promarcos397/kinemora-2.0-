@@ -3,12 +3,14 @@ import Hls from 'hls.js';
 import { Movie, Episode } from '../types';
 import { getSeasonDetails, getMovieDetails, getExternalIds } from '../services/api';
 
-import { getProviders } from '../services/p-stream-backend/providers/providers';
-import { isExtensionActive } from '../services/p-stream-backend/extension/messaging';
-import { IMG_PATH } from '../constants';
+import { streamService } from '../services/stream/StreamService';
 import { useGlobalContext } from '../context/GlobalContext';
 import { parseSubtitles, captionIsVisible, sanitize, CaptionCueType, makeQueId } from '../utils/captions';
-import { scrapeOpenSubtitlesCaptions } from '../services/opensubtitles';
+
+import { getSkipIntervals, SkipInterval } from '../services/IntroService';
+import VideoPlayerControls from './VideoPlayerControls';
+import VideoPlayerSettings from './VideoPlayerSettings';
+import { SkipForwardIcon, ArrowLeftIcon } from '@phosphor-icons/react';
 
 interface VideoPlayerProps {
     movie: Movie;
@@ -16,36 +18,6 @@ interface VideoPlayerProps {
     episode?: number;
     onClose: () => void;
 }
-
-// Reusable Popup Panel Component
-interface PopupPanelProps {
-    title: string;
-    onBack?: () => void;
-    onClose: () => void;
-    children: React.ReactNode;
-    headerContent?: React.ReactNode;
-}
-
-const PopupPanel: React.FC<PopupPanelProps> = ({ title, onBack, onClose, children, headerContent }) => (
-    <div className="absolute bottom-28 right-12 w-[550px] max-h-[75vh] bg-[#141414] z-[110] flex flex-col font-sans border border-[#333] shadow-2xl rounded-lg overflow-hidden animate-fadeIn">
-        <div className="flex items-center px-6 py-4 border-b border-[#333] bg-[#181818] sticky top-0 z-10">
-            {onBack ? (
-                <button onClick={onBack} className="mr-4 text-white hover:text-gray-300 transition">
-                    <span className="material-icons text-3xl">arrow_back</span>
-                </button>
-            ) : null}
-            <div className="flex-1">
-                {headerContent || <div className="text-xl font-bold text-white">{title}</div>}
-            </div>
-            <button onClick={onClose} className="ml-4 text-white hover:text-gray-300 transition">
-                <span className="material-icons text-3xl">close</span>
-            </button>
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
-            {children}
-        </div>
-    </div>
-);
 
 // Caption Rendering Component
 const CaptionCue: React.FC<{ cue: CaptionCueType }> = ({ cue }) => {
@@ -127,6 +99,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
 
     const [showUI, setShowUI] = useState(true);
     const [activePanel, setActivePanel] = useState<'none' | 'episodes' | 'seasons' | 'audioSubtitles' | 'quality'>('none');
+    const menuCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Delayed menu close (allows time to move from button to panel)
+    const scheduleMenuClose = useCallback(() => {
+        menuCloseTimeoutRef.current = setTimeout(() => {
+            setActivePanel('none');
+        }, 300); // 300ms delay to allow moving to panel
+    }, []);
+
+    const cancelMenuClose = useCallback(() => {
+        if (menuCloseTimeoutRef.current) {
+            clearTimeout(menuCloseTimeoutRef.current);
+            menuCloseTimeoutRef.current = null;
+        }
+    }, []);
 
     const [seasonList, setSeasonList] = useState<number[]>([]);
     const [currentSeasonEpisodes, setCurrentSeasonEpisodes] = useState<Episode[]>([]);
@@ -144,17 +131,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
     });
     const [isMuted, setIsMuted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [imdbId, setImdbId] = useState<string | undefined>(movie.imdb_id);
+
+    // Fetch IMDB ID if missing
+    useEffect(() => {
+        const fetchIds = async () => {
+            // Reset
+            setImdbId(movie.imdb_id);
+
+            if (!movie.imdb_id && movie.id) {
+                try {
+                    const type = movie.media_type || (movie.title ? 'movie' : 'tv');
+                    const ids = await getExternalIds(movie.id, type as any);
+                    if (ids && ids.imdb_id) {
+                        setImdbId(ids.imdb_id);
+                        console.log('[VideoPlayer] Fetched missing IMDB ID:', ids.imdb_id);
+                    }
+                } catch (e) { console.warn("[VideoPlayer] Failed to fetch IMDB ID", e); }
+            }
+        };
+        fetchIds();
+    }, [movie]);
 
     const [qualities, setQualities] = useState<Array<{ height: number; level: number }>>([]);
     const [currentQuality, setCurrentQuality] = useState<number>(-1);
 
     const [captions, setCaptions] = useState<Array<{ id: string; label: string; url: string; lang: string }>>([]);
     const [currentCaption, setCurrentCaption] = useState<string | null>(null);
+    const [failedProviders, setFailedProviders] = useState<string[]>([]);
+    const [currentProviderName, setCurrentProviderName] = useState<string | null>(null);
     const [parsedCaptions, setParsedCaptions] = useState<CaptionCueType[]>([]);
     const [activeCues, setActiveCues] = useState<CaptionCueType[]>([]);
-    const [subtitleLanguage, setSubtitleLanguage] = useState<string | null>(null);
+
+    // Proxy configuration managed via PStreamAdapter now?
+    // We'll fallback to direct or simple proxy if needed, but avoiding hardcoded list to respect user changes.
+    // const PROXIES = [ ... ]; 
+    // const getProxiedUrl = ...
+
+    // Quick helper for subtitles (legacy support if needed)
+    const getSimpleProxyUrl = (url: string) => {
+        return `https://kmovie-proxy.ibrahimar397.workers.dev/?url=${encodeURIComponent(url)}`;
+    };
 
     const [showSkipIntro, setShowSkipIntro] = useState(false);
+    const [skipIntervals, setSkipIntervals] = useState<SkipInterval[]>([]);
+    const [currentSkip, setCurrentSkip] = useState<SkipInterval | null>(null);
     const introShownRef = useRef(false);  // Track if intro has been triggered for this episode (Ref to avoid stale closure)
     const [showRating, setShowRating] = useState(false);
     const [showNextEp, setShowNextEp] = useState(false);
@@ -195,10 +216,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         }
     }, [movie.id, mediaType, selectedSeason, fetchSeasonData]);
 
-    // Rating Badge Timer
+    // Rating Badge Timer - 3 seconds
     useEffect(() => {
-        const showTimer = setTimeout(() => setShowRating(true), 6000);
-        const hideTimer = setTimeout(() => setShowRating(false), 10000);
+        const showTimer = setTimeout(() => setShowRating(true), 3000);
+        const hideTimer = setTimeout(() => setShowRating(false), 8000);
         return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
     }, []);
 
@@ -210,6 +231,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         }
     }, [showSkipIntro]);
 
+    // Resume Progress
+    useEffect(() => {
+        const savedTime = localStorage.getItem(`kinemora-progress-${movie.id}`);
+        if (savedTime && videoRef.current) {
+            const time = parseFloat(savedTime);
+            if (time > 0) {
+                setTimeout(() => {
+                    if (videoRef.current) videoRef.current.currentTime = time;
+                }, 1000);
+            }
+        }
+    }, [movie.id]);
+
     useEffect(() => {
         const fetchStream = async () => {
             setIsBuffering(true);
@@ -219,104 +253,150 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             setParsedCaptions([]);
             setActiveCues([]);
 
-            await isExtensionActive();
-            const providers = getProviders();
-            const tmdbId = movie.id.toString();
-
-            const media = mediaType === 'movie'
-                ? { type: 'movie' as const, tmdbId, title: movie.title || '', releaseYear: new Date(movie.release_date || '').getFullYear() }
-                : { type: 'show' as const, tmdbId, title: movie.name || '', releaseYear: new Date(movie.first_air_date || '').getFullYear(), episode: { number: currentEpisode, tmdbId: '' }, season: { number: selectedSeason, tmdbId: '', title: `Season ${selectedSeason}` } };
-
             try {
-                // Fetch stream from all providers
-                const output = await providers.runAll({ media: media });
-                console.log("Stream Output:", output);
+                // 1. Search using StreamService
+                const query = mediaType === 'movie' ? movie.title : movie.name;
+                if (!query) throw new Error("No title found");
 
-                // --- OPEN SUBTITLES FETCH ---
-                let imdbId = movie.imdb_id;
+                console.log(`Searching via StreamService for: ${query}`);
+                const searchResults = await streamService.search(query, failedProviders);
 
-                // If we don't have IMDB ID, try to fetch it from external_ids endpoint
-                if (!imdbId) {
-                    try {
-                        const externalIds = await getExternalIds(movie.id, mediaType === 'movie' ? 'movie' : 'tv');
-                        if (externalIds && externalIds.imdb_id) {
-                            imdbId = externalIds.imdb_id;
-                            console.log("Fetched missing IMDB ID via external_ids:", imdbId);
-                        } else {
-                            // Fallback to details if external_ids fails (though unlikely for valid ID)
-                            const details = await getMovieDetails(movie.id, mediaType === 'movie' ? 'movie' : 'tv');
-                            if (details && details.imdb_id) {
-                                imdbId = details.imdb_id;
+                if (searchResults.length === 0) {
+                    console.error("StreamService found no results");
+                    setIsBuffering(false);
+                    return;
+                }
+
+                // 2. Get Details (using the best result)
+                const targetType = mediaType === 'movie' ? 'Movie' : 'TV';
+                let firstResult = searchResults.find((r: any) => r.type && (r.type === targetType || r.type.includes(targetType)));
+
+                if (!firstResult) {
+                    console.warn(`No exact type match for ${targetType}, using first result`);
+                    firstResult = searchResults[0];
+                }
+
+                console.log("Using result:", firstResult);
+                setCurrentProviderName(firstResult.provider);
+
+                const info = await streamService.getInfo(firstResult.id, firstResult.provider);
+                if (!info) throw new Error("Could not get info");
+
+                // 3. Find correct episode
+                let episodeId = '';
+                if (mediaType === 'movie') {
+                    if (info.episodes && info.episodes.length > 0) {
+                        episodeId = info.episodes[0].id;
+                    }
+                } else {
+                    const targetEp = info.episodes?.find((e: any) => e.number === currentEpisode && e.season === selectedSeason);
+                    if (targetEp) episodeId = targetEp.id;
+                    else if (info.episodes?.length > 0) {
+                        const targetEpBroad = info.episodes.find((e: any) => e.number === currentEpisode);
+                        if (targetEpBroad) episodeId = targetEp.id;
+                    }
+                }
+
+                if (!episodeId) {
+                    console.error("Episode/Movie stream ID not found in info");
+                    setIsBuffering(false);
+                    return;
+                }
+
+                // 4. Get Stream Link
+                console.log(`Fetching stream link for episodeId: ${episodeId}`);
+                const streamData = await streamService.getStreamLink(
+                    episodeId,
+                    firstResult.id,
+                    firstResult.provider,
+                    ((info as any).tmdbId || movie.id || '').toString(),
+                    (mediaType === 'tv' ? 'show' : 'movie') as 'movie' | 'show',
+                    selectedSeason,
+                    currentEpisode,
+                    imdbId || undefined
+                );
+
+                if (!streamData || !streamData.sources || streamData.sources.length === 0) {
+                    console.error("No sources found in streamData, switching provider...");
+                    setFailedProviders(prev => currentProviderName ? [...prev, currentProviderName] : prev);
+                    setIsBuffering(false);
+                    return;
+                }
+
+                // Get M3U8
+                const source = streamData.sources.find(s => s.isM3U8) || streamData.sources[0];
+                let streamUrl = source.url;
+
+                // Proxy logic commented out to defer to Adapter/User control
+                // streamUrl = getSimpleProxyUrl(streamUrl); 
+
+                // Handle Subtitles
+                if (streamData.subtitles && streamData.subtitles.length > 0) {
+                    setCaptions(prev => {
+                        const newCaps = streamData.subtitles.map(c => ({
+                            id: `con-${Math.random()}`,
+                            label: c.label || c.lang || 'Unknown',
+                            lang: c.lang || 'en',
+                            url: c.url
+                        }));
+                        return [...prev, ...newCaps];
+                    });
+                }
+
+                console.log("Playing URL:", streamUrl);
+
+                if (Hls.isSupported() && videoRef.current) {
+                    if (hlsRef.current) hlsRef.current.destroy();
+
+                    const hls = new Hls({
+                        capLevelToPlayerSize: true,
+                        // Config can go here
+                    });
+
+                    hls.loadSource(streamUrl);
+                    hls.attachMedia(videoRef.current);
+                    hlsRef.current = hls;
+
+                    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                        const levels = data.levels.map((lvl, index) => ({ height: lvl.height, level: index }));
+                        levels.sort((a, b) => b.height - a.height);
+                        setQualities(levels);
+                        videoRef.current?.play().catch(e => console.error("Autoplay failed", e));
+                        setIsBuffering(false);
+                    });
+                    // Error handling
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response && data.response.code === 403) {
+                            console.warn("403 Forbidden detected. Switching provider...");
+                            hls.destroy();
+                            setFailedProviders(prev => currentProviderName ? [...prev, currentProviderName] : prev);
+                            return;
+                        }
+
+                        if (data.fatal) {
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR:
+                                    hls.startLoad();
+                                    break;
+                                case Hls.ErrorTypes.MEDIA_ERROR:
+                                    hls.recoverMediaError();
+                                    break;
+                                default:
+                                    hls.destroy();
+                                    setFailedProviders(prev => currentProviderName ? [...prev, currentProviderName] : prev);
+                                    break;
                             }
                         }
-                    } catch (e) {
-                        console.error("Failed to fetch details for IMDB ID", e);
-                    }
+                    });
+
+                } else if (videoRef.current?.canPlayType('application/vnd.apple.mpegurl')) {
+                    videoRef.current.src = streamUrl;
+                    videoRef.current.addEventListener('loadedmetadata', () => {
+                        videoRef.current?.play();
+                        setIsBuffering(false);
+                    });
                 }
 
-                if (imdbId) {
-                    console.log("Fetching OpenSubtitles for", imdbId);
-                    scrapeOpenSubtitlesCaptions(imdbId, mediaType === 'tv' ? selectedSeason : undefined, mediaType === 'tv' ? currentEpisode : undefined)
-                        .then(osCaps => {
-                            console.log("OpenSubtitles found:", osCaps.length);
-                            setCaptions(prev => {
-                                const existingUrls = new Set(prev.map(c => c.url));
-                                const newCaps = osCaps.filter(c => !existingUrls.has(c.url)).map(c => ({
-                                    id: `os-${c.id}`,
-                                    label: c.display,
-                                    lang: c.language,
-                                    url: c.url
-                                }));
-                                return [...prev, ...newCaps];
-                            });
-                        });
-                } else {
-                    console.warn("No IMDB ID available for OpenSubtitles search");
-                }
-
-                if (output && output.stream) {
-                    const stream = output.stream as any;
-                    const streamUrl = stream.playlist;
-
-                    if (stream.captions && stream.captions.length > 0) {
-                        const processedCaptions = stream.captions.map((cap: any) => ({
-                            id: cap.id || `cap-${Math.random()}`,
-                            label: cap.label || cap.language || 'Unknown',
-                            lang: cap.language || 'en',
-                            url: cap.url
-                        }));
-                        setCaptions(prev => {
-                            const existingUrls = new Set(prev.map(c => c.url));
-                            const newCaps = processedCaptions.filter((c: any) => !existingUrls.has(c.url));
-                            return [...prev, ...newCaps];
-                        });
-                    }
-
-                    if (Hls.isSupported() && videoRef.current) {
-                        if (hlsRef.current) hlsRef.current.destroy();
-                        const hls = new Hls({ capLevelToPlayerSize: true });
-                        hls.loadSource(streamUrl);
-                        hls.attachMedia(videoRef.current);
-                        hlsRef.current = hls;
-
-                        hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                            const levels = data.levels.map((lvl, index) => ({ height: lvl.height, level: index }));
-                            levels.sort((a, b) => b.height - a.height);
-                            setQualities(levels);
-                            videoRef.current?.play().catch(e => console.error("Autoplay failed", e));
-                            setIsBuffering(false);
-                        });
-                    } else if (videoRef.current?.canPlayType('application/vnd.apple.mpegurl')) {
-                        videoRef.current.src = streamUrl;
-                        videoRef.current.addEventListener('loadedmetadata', () => {
-                            videoRef.current?.play();
-                            setIsBuffering(false);
-                        });
-                    }
-                } else {
-                    console.error("No stream found");
-                    setIsBuffering(false);
-                }
             } catch (err) {
                 console.error("Error fetching stream:", err);
                 setIsBuffering(false);
@@ -324,7 +404,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         };
         fetchStream();
         return () => { if (hlsRef.current) hlsRef.current.destroy(); };
-    }, [movie, currentEpisode, selectedSeason, mediaType]);
+    }, [movie, currentEpisode, selectedSeason, mediaType, failedProviders]);
 
     useEffect(() => {
         if (!currentCaption) {
@@ -339,7 +419,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                 if (!response.ok) throw new Error("Network response was not ok");
                 let text = await response.text();
 
-                // If it looks like HTML (sometimes blocked/error page), try proxy
                 if (text.trim().startsWith("<!DOCTYPE html>") || text.trim().startsWith("<html")) {
                     throw new Error("Received HTML instead of VTT/SRT");
                 }
@@ -349,8 +428,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             } catch (e) {
                 console.warn("Direct fetch failed, trying proxy for subtitles:", e);
                 try {
-                    // Fallback to a public CORS proxy (demo purposes, better to have own backend)
-                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(currentCaption)}`;
+                    const proxyUrl = getSimpleProxyUrl(currentCaption);
                     const response = await fetch(proxyUrl);
                     const text = await response.text();
                     const parsed = parseSubtitles(text);
@@ -389,11 +467,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                     else setShowNextEp(false);
 
                     if (percentage >= 99.5 && !isBuffering) {
-                        // Debounce or ensure single call? 
-                        // handleNextEpisode resets progress, so checking percentage < 99.5 might be needed if state change is slow
-                        // But for now, simple call is fine as handleNextEpisode sets buffering immediately
                         handleNextEpisode();
                     }
+                }
+
+                // Save progress
+                if (Math.abs(video.currentTime - (parseFloat(localStorage.getItem(`kinemora-progress-${movie.id}`) || '0'))) > 5) {
+                    localStorage.setItem(`kinemora-progress-${movie.id}`, video.currentTime.toString());
+                    const completion = (video.currentTime / video.duration) * 100;
+                    localStorage.setItem(`kinemora-completion-${movie.id}`, completion.toString());
                 }
             }
 
@@ -445,9 +527,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         if (nextEp) handleEpisodeChange(nextEp);
     }, [currentSeasonEpisodes, currentEpisode, seasonList, selectedSeason]);
 
+    // Previous episode handler for P keyboard shortcut
+    const handlePreviousEpisode = useCallback(() => {
+        const currentIndex = currentSeasonEpisodes.findIndex(e => e.episode_number === currentEpisode);
+        let prevEp: Episode | undefined;
+        if (currentIndex > 0) {
+            prevEp = currentSeasonEpisodes[currentIndex - 1];
+        } else if (seasonList.includes(selectedSeason - 1)) {
+            // Go to previous season's last episode
+            const prevSeason = selectedSeason - 1;
+            setSelectedSeason(prevSeason);
+            setIsBuffering(true);
+            setTimeout(() => setIsBuffering(false), 1000);
+            return;
+        }
+        if (prevEp) handleEpisodeChange(prevEp);
+    }, [currentSeasonEpisodes, currentEpisode, seasonList, selectedSeason]);
+
     const handleEpisodeChange = (ep: Episode) => {
         setIsBuffering(true);
-        setCurrentEpisode(ep.episode_number);
         setCurrentEpisode(ep.episode_number);
         setProgress(0);
         setShowSkipIntro(false);
@@ -460,17 +558,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
         setTimeout(() => { setIsBuffering(false); setIsPlaying(true); }, 800);
     };
 
-    const handleSkipIntro = () => {
-        setIsBuffering(true);
-        setTimeout(() => { if (videoRef.current) videoRef.current.currentTime += 30; setShowSkipIntro(false); setIsBuffering(false); }, 400);
+    const handleTimeUpdate = () => {
+        if (!videoRef.current) return;
+        const time = videoRef.current.currentTime;
+        const duration = videoRef.current.duration;
+        const buffered = videoRef.current.buffered;
+        // Skip Intro/Outro Check
+        const activeSkip = skipIntervals.find(interval => time >= interval.startTime && time < interval.endTime);
+        setCurrentSkip(activeSkip || null);
+        // Next Episode Auto-Prompt
+        if (duration - time < 60) {
+            if (!showNextEp && (currentSeasonEpisodes.length > 0 || seasonList.length > 0)) setShowNextEp(true);
+        } else {
+            if (showNextEp) setShowNextEp(false);
+        }
     };
 
     const toggleFullscreen = useCallback(() => {
         if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(err => console.error(err)); setIsFullscreen(true); }
         else { if (document.exitFullscreen) { document.exitFullscreen(); setIsFullscreen(false); } }
     }, []);
-
-    // Initial Skip Intro useEffect removed - now tracked via timeUpdate
 
     const resetInactivityTimer = useCallback(() => {
         setShowUI(true);
@@ -487,14 +594,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             resetInactivityTimer();
             switch (e.code) {
                 case 'Space': e.preventDefault(); togglePlay(); break;
+                case 'KeyK': e.preventDefault(); togglePlay(); break; // Netflix-style play/pause
                 case 'ArrowRight': e.preventDefault(); handleSeek(10); break;
                 case 'ArrowLeft': e.preventDefault(); handleSeek(-10); break;
                 case 'ArrowUp': e.preventDefault(); setVolume(v => Math.min(1, v + 0.1)); break;
                 case 'ArrowDown': e.preventDefault(); setVolume(v => Math.max(0, v - 0.1)); break;
                 case 'KeyM': setIsMuted(m => !m); break;
                 case 'KeyF': toggleFullscreen(); break;
+                case 'KeyN': if (movie.media_type === 'tv') handleNextEpisode(); break; // Next episode (TV only)
+                case 'KeyP': if (movie.media_type === 'tv') handlePreviousEpisode(); break; // Previous episode (TV only)
                 case 'Escape': if (activePanel !== 'none') setActivePanel('none'); else onClose(); break;
-                case 'KeyS': if (showSkipIntro) handleSkipIntro(); break;
             }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -505,17 +614,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             window.removeEventListener('mousemove', resetInactivityTimer);
             window.removeEventListener('click', resetInactivityTimer);
         };
-    }, [resetInactivityTimer, onClose, activePanel, showSkipIntro, handleSeek]);
+    }, [resetInactivityTimer, onClose, activePanel, handleSeek, handleNextEpisode, handlePreviousEpisode, movie.media_type]);
 
     const handleQualityChange = (levelIndex: number) => { if (hlsRef.current) { hlsRef.current.currentLevel = levelIndex; setCurrentQuality(levelIndex); } setActivePanel('none'); };
     const handleSubtitleChange = (url: string | null) => { setCurrentCaption(url); setActivePanel('none'); };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-black font-sans text-white overflow-hidden select-none group/player">
+        <div className={`fixed inset-0 z-[100] bg-black font-['Consolas'] text-white overflow-hidden select-none group/player ${showUI ? '' : 'cursor-none'}`}>
 
             <div className="absolute inset-0 w-full h-full bg-black">
-                <video ref={videoRef} className="w-full h-full object-contain" autoPlay playsInline crossOrigin="anonymous" />
+                <video
+                    ref={videoRef}
+                    className="w-full h-full object-contain"
+                    autoPlay
+                    playsInline
+                    crossOrigin="anonymous"
+                    onTimeUpdate={handleTimeUpdate}
+                />
             </div>
+
+            {/* Back Button (Top Left) */}
+            <div className={`absolute top-6 left-6 z-50 transition-opacity duration-300 ${showUI ? 'opacity-100' : 'opacity-0'}`}>
+                <button
+                    onClick={onClose}
+                    className="flex items-center justify-center w-14 h-14 rounded-full bg-transparent hover:bg-[#E50914] text-white transition-all duration-300 backdrop-blur-sm group/back"
+                >
+                    <ArrowLeftIcon size={42} weight="bold" />
+                </button>
+            </div>
+
+            {/* Loading Spinner */}
+            {isBuffering && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-30 pointer-events-none">
+                    <div className="w-14 h-14 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" />
+                    <span className="text-white/70 text-sm mt-4">Fetching...</span>
+                </div>
+            )}
 
             {activeCues.length > 0 && (
                 <div className="absolute bottom-32 left-0 right-0 flex flex-col items-center pointer-events-none z-10 px-4 transition-all duration-300">
@@ -525,28 +659,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                 </div>
             )}
 
-            <div className={`absolute inset-0 z-20 ${showUI ? 'cursor-default' : 'cursor-none'}`} onClick={() => { togglePlay(); resetInactivityTimer(); }} onDoubleClick={toggleFullscreen} onMouseMove={resetInactivityTimer} />
+            <div className="absolute inset-0 z-20 cursor-default" onClick={() => { togglePlay(); resetInactivityTimer(); }} onDoubleClick={toggleFullscreen} onMouseMove={resetInactivityTimer} />
 
             {/* Rating Badge Overlay */}
-            {mediaType === 'movie' && ( // Or apply to TV shows too? User said "video", implies generic. Let's apply to all.
-                <div className={`absolute top-24 left-0 transition-all duration-700 z-[60] ${showRating ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
+            {mediaType === 'movie' && isPlaying && (
+                <div className={`absolute top-24 left-6 transition-all duration-700 z-[60] ${showRating ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10'}`}>
                     <div className="flex bg-black/60 backdrop-blur-md border-l-[6px] border-[#E50914] py-2 px-4 shadow-xl">
                         <div className="flex flex-col justify-center">
-                            <span className="text-white font-bold text-sm tracking-wider uppercase drop-shadow-md leading-tight">RATED 12</span>
-                            <span className="text-gray-200 text-xs font-normal drop-shadow-md leading-tight">language, sex references</span>
+                            <span className="text-white text-sm tracking-wider uppercase drop-shadow-md leading-tight">RATED 12</span>
+                            <span className="text-white/80 text-xs font-normal drop-shadow-md leading-tight">language, sex references</span>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Skip Intro Button */}
-            <div className={`absolute bottom-32 left-12 z-40 transition-all duration-500 transform ${showSkipIntro && showUI ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
+            {/* Skip Button (Intro / Outro) */}
+            <div className={`absolute bottom-32 left-12 z-40 transition-all duration-500 transform ${currentSkip && showUI ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
                 <button
-                    onClick={(e) => { e.stopPropagation(); handleSkipIntro(); }}
-                    className="flex items-center justify-center bg-white text-black px-6 h-10 rounded-[4px] font-bold hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm shadow-lg"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (currentSkip && videoRef.current) {
+                            videoRef.current.currentTime = currentSkip.endTime;
+                            setCurrentSkip(null);
+                        }
+                    }}
+                    className="flex items-center justify-center bg-white text-black px-6 h-10 rounded-[4px] hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm shadow-lg border border-gray-300"
                 >
-                    <svg className="w-5 h-5 mr-2 text-black fill-current" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z" /></svg>
-                    Skip Intro
+                    <SkipForwardIcon size={20} className="mr-2 text-black" />
+                    {currentSkip?.type === 'outro' ? 'Skip Outro' : 'Skip Intro'}
                 </button>
             </div>
 
@@ -555,177 +695,75 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                 <div className={`absolute bottom-32 right-12 z-40 transition-all duration-500 transform ${showUI ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
                     <button
                         onClick={(e) => { e.stopPropagation(); handleNextEpisode(); }}
-                        className="flex items-center justify-center bg-white text-black px-6 h-10 rounded-[4px] font-bold hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm shadow-lg"
+                        className="flex items-center justify-center bg-white text-black px-6 h-10 rounded-[4px] hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm shadow-lg"
                     >
-                        <svg className="w-5 h-5 mr-2 text-black fill-current" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z" /></svg>
+                        <SkipForwardIcon size={20} className="mr-2 text-black" />
                         Next Episode
                     </button>
                 </div>
             )}
 
-            <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 z-30 pointer-events-none ${showUI || activePanel !== 'none' || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>
-                <div className="p-8 flex justify-between items-start pointer-events-auto bg-gradient-to-b from-black/80 to-transparent">
-                    <button onClick={onClose} className="group p-2 rounded-full hover:bg-white/10 transition">
-                        <span className="material-icons text-5xl text-white group-hover:scale-110 transition-transform">arrow_back</span>
-                    </button>
-                </div>
+            <VideoPlayerControls
+                isPlaying={isPlaying}
+                isMuted={isMuted}
+                progress={progress}
+                duration={duration}
+                isBuffering={isBuffering}
+                showNextEp={showNextEp}
+                title={mediaType === 'tv' && activeEpisodeData ? (
+                    <>
+                        <span className="font-bold">{movie.title || movie.name}</span>
+                        <span className="font-normal opacity-90 ml-2">E{activeEpisodeData.episode_number} {activeEpisodeData.name}</span>
+                    </>
+                ) : (
+                    <span className="font-bold">{movie.title || movie.name || ''}</span>
+                )}
+                onPlayPause={togglePlay}
+                onSeek={handleSeek}
+                volume={volume}
+                onVolumeChange={setVolume}
+                onToggleMute={() => setIsMuted(!isMuted)}
+                onTimelineSeek={(perc) => {
+                    if (videoRef.current && Number.isFinite(videoRef.current.duration)) {
+                        const seekTime = (perc / 100) * videoRef.current.duration;
+                        videoRef.current.currentTime = seekTime;
+                        setProgress(perc);
+                    }
+                }}
+                onNextEpisode={mediaType === 'tv' ? handleNextEpisode : undefined}
+                onClose={onClose}
+                onToggleFullscreen={toggleFullscreen}
+                areSubtitlesOff={currentCaption === null}
+                onSubtitlesClick={() => { cancelMenuClose(); setActivePanel('audioSubtitles'); }}
+                onSettingsClick={() => { cancelMenuClose(); setActivePanel('quality'); }}
+                onSubtitlesHover={() => { cancelMenuClose(); setActivePanel('audioSubtitles'); }}
+                onSettingsHover={() => { cancelMenuClose(); setActivePanel('quality'); }}
+                onEpisodesClick={mediaType === 'tv' ? () => { cancelMenuClose(); setActivePanel('episodes'); } : undefined}
+                onEpisodesHover={mediaType === 'tv' ? () => { cancelMenuClose(); setActivePanel('episodes'); } : undefined}
+                onMenuClose={scheduleMenuClose}
+                isMenuOpen={activePanel !== 'none'}
+            />
 
-                <div className="bg-gradient-to-t from-black via-black/80 to-transparent px-8 pb-8 pt-20 pointer-events-auto">
-                    <div className="relative w-full h-1.5 bg-gray-600/50 hover:h-2.5 transition-all duration-200 rounded-none mb-6 group/timeline cursor-pointer flex items-center" onClick={(e) => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); const x = e.clientX - rect.left; const perc = Math.max(0, Math.min(100, (x / rect.width) * 100)); if (videoRef.current && Number.isFinite(videoRef.current.duration)) { const seekTime = (perc / 100) * videoRef.current.duration; videoRef.current.currentTime = seekTime; setProgress(perc); } }}>
-                        <div className="absolute top-0 left-0 h-full bg-gray-400/50 w-[0%] rounded-none" style={{ width: isBuffering ? '100%' : '0%' }} />
-                        <div className="absolute top-0 left-0 h-full bg-[#E50914] z-20 rounded-none" style={{ width: `${progress}%` }} />
-                        <div className="absolute h-5 w-5 bg-[#E50914] rounded-full z-30 scale-0 group-hover/timeline:scale-100 transition-transform shadow-lg border-2 border-white" style={{ left: `${progress}%`, transform: 'translateX(-50%)' }} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-6">
-                            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="hover:text-gray-300 transition transform hover:scale-110"><span className="material-icons text-[3rem]">{isPlaying ? 'pause' : 'play_arrow'}</span></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleSeek(-10); }} className="hover:text-gray-300 transition transform hover:scale-110"><span className="material-icons text-[3rem]">replay_10</span></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleSeek(10); }} className="hover:text-gray-300 transition transform hover:scale-110"><span className="material-icons text-[3rem]">forward_10</span></button>
-                            <div className="flex items-center group/vol relative">
-                                <button onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }} className="hover:text-gray-300 transition transform hover:scale-110"><span className="material-icons text-[3rem]">{isMuted ? 'volume_off' : 'volume_up'}</span></button>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col items-center">
-                            <h3 className="text-xl font-bold text-white drop-shadow-md">{movie.title || movie.name}</h3>
-                            {activeEpisodeData && <div className="text-gray-300 font-medium whitespace-nowrap">S{selectedSeason}:E{currentEpisode} {activeEpisodeData.name}</div>}
-                        </div>
-
-                        <div className="flex items-center space-x-6">
-                            {mediaType === 'tv' && (
-                                <button onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'episodes' ? 'none' : 'episodes'); }} className={`transition transform hover:scale-110 ${activePanel === 'episodes' || activePanel === 'seasons' ? 'text-[#E50914]' : 'hover:text-gray-300'}`}>
-                                    <span className="material-icons text-[3rem] -scale-x-100">video_library</span>
-                                </button>
-                            )}
-                            <button onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'audioSubtitles' ? 'none' : 'audioSubtitles'); }} className={`transition transform hover:scale-110 ${activePanel === 'audioSubtitles' ? 'text-[#E50914]' : 'hover:text-gray-300'}`}>
-                                <span className="material-icons text-[3rem]">subtitles</span>
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); setActivePanel(activePanel === 'quality' ? 'none' : 'quality'); }} className={`transition transform hover:scale-110 ${activePanel === 'quality' ? 'text-[#E50914]' : 'hover:text-gray-300'}`}>
-                                <span className="material-icons text-[3rem]">settings</span>
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="hover:text-gray-300 transition transform hover:scale-110"><span className="material-icons text-[3rem]">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</span></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {activePanel === 'episodes' && mediaType === 'tv' && (
-                <PopupPanel title={`Season ${selectedSeason}`} onClose={() => setActivePanel('none')} headerContent={<div className="flex items-center w-full"><button onClick={() => setActivePanel('seasons')} className="mr-4 text-white hover:text-gray-300 transition"><span className="material-icons text-3xl">arrow_back</span></button><div className="text-xl font-bold text-white">Season {selectedSeason}</div></div>}>
-                    <div className="p-0">
-                        {currentSeasonEpisodes.map(ep => {
-                            const isActive = currentEpisode === ep.episode_number;
-                            return (
-                                <div key={ep.id} onClick={() => handleEpisodeChange(ep)} className={`group border-b border-[#282828] cursor-pointer hover:bg-[#202020] transition bg-[#141414] py-2`}>
-                                    <div className="flex items-center px-4 py-2">
-                                        <div className="text-lg font-bold w-8 text-gray-400 text-center mr-4">{ep.episode_number}</div>
-                                        {!isActive && (<div className="flex-1 min-w-0 flex justify-between items-center px-2"><div className="font-bold text-white text-base truncate pr-4">{ep.name}</div><div className="text-gray-400 text-sm font-light min-w-[50px] text-right">{ep.runtime ? `${ep.runtime}m` : ''}</div></div>)}
-                                        {isActive && (<div className="flex-1"><div className="flex gap-4"><div className="relative w-40 h-24 bg-gray-800 rounded-sm overflow-hidden flex-shrink-0">{ep.still_path ? (<img src={`${IMG_PATH}${ep.still_path}`} alt="" className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center text-gray-600 bg-black"><span className="material-icons">image</span></div>)}<div className="absolute bottom-0 left-0 w-full h-1 bg-gray-700"><div className="bg-[#E50914] h-full w-[0%]"></div></div><div className="absolute inset-0 flex items-center justify-center bg-black/30"><span className="material-icons text-white text-3xl drop-shadow-lg">play_circle_filled</span></div></div><div className="flex-1 min-w-0 py-1"><div className="font-bold text-white text-base mb-2">{ep.name}</div><div className="text-xs text-gray-400 leading-relaxed line-clamp-3">{ep.overview}</div></div></div></div>)}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </PopupPanel>
-            )}
-
-            {activePanel === 'seasons' && mediaType === 'tv' && (
-                <PopupPanel title={movie.name || movie.title || 'Series'} onClose={() => setActivePanel('none')}>
-                    <div className="p-0">
-                        {seasonList.map(s => (<div key={s} onClick={() => { setSelectedSeason(s); setActivePanel('episodes'); }} className={`px-6 py-4 text-lg cursor-pointer transition flex justify-between items-center border-b border-[#282828] hover:bg-[#202020] ${selectedSeason === s ? 'bg-[#202020]' : 'bg-[#141414]'}`}><span className={`${selectedSeason === s ? 'font-bold text-white' : 'text-gray-300'}`}>Season {s}</span>{selectedSeason === s && <span className="material-icons text-white">check</span>}</div>))}
-                    </div>
-                </PopupPanel>
-            )}
-
-            {activePanel === 'audioSubtitles' && (
-                <div className="absolute bottom-28 right-12 w-[600px] h-auto max-h-[60vh] bg-[#262626] z-[110] rounded shadow-2xl flex flex-col font-sans text-sm text-[#e5e5e5] animate-fadeIn p-4 overflow-hidden">
-                    <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 pr-1">
-                        {(() => {
-                            // Group captions by language label (e.g. "English" from "English (CC)")
-                            const groups: Record<string, typeof captions> = {};
-                            captions.forEach(cap => {
-                                // Extract main language name
-                                let groupName = 'Unknown';
-                                if (cap.lang) {
-                                    // Try to use full language name from simple map or cap.label extraction
-                                    // Extract alphanumeric prefix from label as a heuristic for "Language Name"
-                                    const match = cap.label.match(/^([a-zA-Z]+)/);
-                                    if (match) groupName = match[1];
-                                    // if name is short (e.g. 'en'), try to map it (omitted for brevity, relying on label mostly)
-                                }
-                                // Fallback to label if heuristic fails or just use label's first word
-                                if (groupName === 'Unknown' || groupName.length < 2) {
-                                    const match = cap.label.match(/^([a-zA-Z]+)/);
-                                    if (match) groupName = match[1];
-                                    else groupName = cap.label;
-                                }
-
-                                if (!groups[groupName]) groups[groupName] = [];
-                                groups[groupName].push(cap);
-                            });
-
-                            // Determine if we are in Top Level (Language List) or Sub Level (Tracks List)
-                            if (subtitleLanguage === null) {
-                                // View 1: Language List
-                                const sortedLangKeys = Object.keys(groups).sort((a, b) => {
-                                    // English first
-                                    const isEnA = a.toLowerCase().includes('english');
-                                    const isEnB = b.toLowerCase().includes('english');
-                                    if (isEnA && !isEnB) return -1;
-                                    if (!isEnA && isEnB) return 1;
-                                    return a.localeCompare(b);
-                                });
-
-                                return (
-                                    <>
-                                        <div onClick={() => handleSubtitleChange(null)} className={`flex items-center gap-3 cursor-pointer py-2 px-3 rounded hover:bg-[#333] transition ${currentCaption === null ? 'font-bold' : ''} mb-2`}>
-                                            <span className={`material-icons text-base font-bold w-4 ${currentCaption === null ? 'opacity-100' : 'opacity-0'}`}>check</span>
-                                            <span>Off</span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                            {sortedLangKeys.map(langKey => (
-                                                <div key={langKey} onClick={() => setSubtitleLanguage(langKey)} className="flex items-center justify-between cursor-pointer py-2 px-3 rounded hover:bg-[#333] transition group">
-                                                    <span>{langKey}</span>
-                                                    <span className="material-icons text-gray-500 text-sm group-hover:text-white">chevron_right</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </>
-                                );
-                            } else {
-                                // View 2: Tracks List for Selected Language (same format grid)
-                                const pageTitle = subtitleLanguage;
-                                return (
-                                    <div className="flex flex-col h-full">
-                                        <div onClick={() => setSubtitleLanguage(null)} className="flex items-center gap-2 cursor-pointer mb-3 text-gray-400 hover:text-white transition w-max">
-                                            <span className="material-icons text-base">arrow_back</span>
-                                            <span className="uppercase text-xs font-bold tracking-wider">{pageTitle}</span>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                            {groups[subtitleLanguage]?.map(cap => (
-                                                <div key={cap.id} onClick={() => handleSubtitleChange(cap.url)} className={`flex items-center gap-3 cursor-pointer py-2 px-3 rounded hover:bg-[#333] transition ${currentCaption === cap.url ? 'font-bold text-white' : 'text-gray-300'}`}>
-                                                    <span className={`material-icons text-base font-bold w-4 ${currentCaption === cap.url ? 'opacity-100' : 'opacity-0'}`}>check</span>
-                                                    <span>{cap.label}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                );
-                            }
-                        })()}
-                    </div>
-                </div>
-            )}
-
-            {activePanel === 'quality' && (
-                <PopupPanel title="Video Quality" onClose={() => setActivePanel('none')}>
-                    <div className="p-0 bg-[#141414]">
-                        <div onClick={() => handleQualityChange(-1)} className={`px-6 py-4 text-lg cursor-pointer transition flex justify-between items-center border-b border-[#282828] hover:bg-[#202020] ${currentQuality === -1 ? 'bg-[#202020]' : ''}`}><span className={`${currentQuality === -1 ? 'font-bold text-white' : 'text-gray-300'}`}>Auto</span>{currentQuality === -1 && <span className="material-icons text-white">check</span>}</div>
-                        {qualities.map(q => (<div key={q.level} onClick={() => handleQualityChange(q.level)} className={`px-6 py-4 text-lg cursor-pointer transition flex justify-between items-center border-b border-[#282828] hover:bg-[#202020] ${currentQuality === q.level ? 'bg-[#202020]' : ''}`}><span className={`${currentQuality === q.level ? 'font-bold text-white' : 'text-gray-300'}`}>{q.height}p</span>{currentQuality === q.level && <span className="material-icons text-white">check</span>}</div>))}
-                    </div>
-                </PopupPanel>
-            )}
-
+            <VideoPlayerSettings
+                activePanel={activePanel}
+                setActivePanel={setActivePanel}
+                seasonList={seasonList}
+                currentSeasonEpisodes={currentSeasonEpisodes}
+                selectedSeason={selectedSeason}
+                playingSeason={activeEpisodeData?.season_number}
+                currentEpisode={currentEpisode}
+                onSeasonSelect={fetchSeasonData}
+                onEpisodeSelect={handleEpisodeChange}
+                qualities={qualities}
+                currentQuality={currentQuality}
+                onQualityChange={handleQualityChange}
+                captions={captions}
+                currentCaption={currentCaption}
+                onSubtitleChange={handleSubtitleChange}
+                showTitle={movie.name || movie.title}
+                onPanelHover={cancelMenuClose}
+                onStartHide={scheduleMenuClose}
+            />
         </div>
     );
 };
