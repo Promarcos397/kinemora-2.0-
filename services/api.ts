@@ -2,12 +2,29 @@ import axios from 'axios';
 import { API_KEY, BASE_URL } from '../constants';
 import { VideoResponse, TMDBResponse, VideoResult } from '../types';
 
+// Create API instance
 const api = axios.create({
   baseURL: BASE_URL,
   params: {
     api_key: API_KEY,
-    language: 'en-US',
   },
+});
+
+// Current language (defaults to en-US, updated from settings)
+let currentLanguage = 'en-US';
+
+// Set API language - call this when language setting changes
+export const setApiLanguage = (language: string) => {
+  currentLanguage = language;
+};
+
+// Interceptor to add language to all requests
+api.interceptors.request.use((config) => {
+  config.params = {
+    ...config.params,
+    language: currentLanguage,
+  };
+  return config;
 });
 
 export const getMovieVideos = async (id: number, type: 'movie' | 'tv') => {

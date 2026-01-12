@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
     },
+    base: './', // CRITICAL for Electron: ensures relative path asset loading
     css: {
       postcss: {
         plugins: [
@@ -20,13 +21,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [react()],
-    define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-    },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, 'services/p-stream-providers'),
       }
     }
   };

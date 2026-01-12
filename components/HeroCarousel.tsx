@@ -1,17 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { SpeakerSlashIcon, SpeakerHighIcon, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { useYouTubePlayer } from '../hooks/useYouTubePlayer';
+import { useGlobalContext } from '../context/GlobalContext';
+import { useNetworkQuality } from '../hooks/useNetworkQuality';
 import axios from 'axios';
-import YouTube from 'react-youtube';
+import HeroCarouselBackground from './HeroCarouselBackground';
+import HeroCarouselContent from './HeroCarouselContent';
 import { Movie, TMDBResponse } from '../types';
-import { IMG_PATH, LOGO_SIZE, REQUESTS } from '../constants';
-import { fetchTrailers, getMovieImages } from '../services/api';
+import { REQUESTS, LOGO_SIZE } from '../constants';
+import { getMovieImages } from '../services/api';
+import { searchTrailersWithFallback } from '../services/YouTubeService';
 
 interface HeroCarouselProps {
-  onSelect: (movie: Movie) => void;
+  onSelect: (movie: Movie, time?: number, videoId?: string) => void;
   onPlay: (movie: Movie) => void;
   fetchUrl?: string;
+  seekTime?: number; // Command to seek
 }
 
-const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl }) => {
+const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl, seekTime }) => {
+  const { getVideoState, updateVideoState } = useGlobalContext();
+  const networkQuality = useNetworkQuality();
   const [movie, setMovie] = useState<Movie | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,13 +30,34 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
   const [trailerQueue, setTrailerQueue] = useState<string[]>([]);
   const [showVideo, setShowVideo] = useState(false);
   const [isVideoReady, setIsVideoReady] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [hasVideoEnded, setHasVideoEnded] = useState(false);
+  const [replayCount, setReplayCount] = useState(0); // Forces fresh YouTube mount on replay
+  const { isMuted, setIsMuted, playerRef } = useYouTubePlayer(false);
+  const [videoDimensions, setVideoDimensions] = useState<{ width: string | number, height: string | number }>({ width: '120%', height: '120%' });
 
-  const playerRef = useRef<any>(null);
+  // playerRef handled by hook
   const videoTimerRef = useRef<any>(null);
   const fadeIntervalRef = useRef<any>(null);
 
-  // Fetch One Random Movie
+  // Daily Consistent Selection - same movie all day, changes at midnight
+  const getDailyIndex = (results: Movie[], pageType: string): number => {
+    const seed = new Date().toDateString() + "_" + pageType;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+      hash |= 0; // Convert to 32bit integer
+    }
+    return Math.abs(hash) % results.length;
+  };
+
+  // Derive page type from fetchUrl
+  const getPageType = (url: string): string => {
+    if (url.includes('tv')) return 'tv';
+    if (url.includes('movie')) return 'movie';
+    return 'home';
+  };
+
+  // Fetch One Movie (Daily Consistent)
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -37,8 +67,10 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
         const validResults = (request?.data?.results || []).filter(m => m.backdrop_path);
 
         if (validResults.length > 0) {
-          const random = validResults[Math.floor(Math.random() * validResults.length)];
-          setMovie(random);
+          // Use date-seeded index for daily consistent selection
+          const pageType = getPageType(url);
+          const dailyIndex = getDailyIndex(validResults, pageType);
+          setMovie(validResults[dailyIndex]);
         }
         setLoading(false);
       } catch (error) {
@@ -51,59 +83,158 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
 
   // Audio Fading Logic
   const fadeAudioIn = () => {
-    const player = playerRef.current;
-    if (!player || isMuted) return; // Don't fade in if muted globally
+    try {
+      const player = playerRef.current;
+      if (!player || isMuted || typeof player.getVolume !== 'function') return;
 
-    if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+      if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
 
-    // Ensure we start at current measurement or 0
-    let vol = player.getVolume();
-    if (vol > 100) vol = 100;
+      let vol = player.getVolume();
+      if (vol > 100) vol = 100;
 
-    fadeIntervalRef.current = setInterval(() => {
-      if (vol < 100) {
-        vol += 5; // 20 steps * 20ms = 400ms approx
-        player.setVolume(vol);
-      } else {
-        clearInterval(fadeIntervalRef.current);
-      }
-    }, 20);
+      fadeIntervalRef.current = setInterval(() => {
+        try {
+          if (vol < 100) {
+            vol += 5;
+            player.setVolume(vol);
+          } else {
+            clearInterval(fadeIntervalRef.current);
+          }
+        } catch (e) { clearInterval(fadeIntervalRef.current); }
+      }, 20);
+    } catch (e) { }
   };
 
   const fadeAudioOut = (callback?: () => void) => {
-    const player = playerRef.current;
-    if (!player) {
-      if (callback) callback();
-      return;
-    }
-
-    if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
-
-    let vol = player.getVolume();
-
-    fadeIntervalRef.current = setInterval(() => {
-      if (vol > 0) {
-        vol -= 5;
-        player.setVolume(vol);
-      } else {
-        clearInterval(fadeIntervalRef.current);
+    try {
+      const player = playerRef.current;
+      if (!player || typeof player.getVolume !== 'function') {
         if (callback) callback();
+        return;
       }
-    }, 20);
+
+      if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+
+      let vol = player.getVolume();
+
+      fadeIntervalRef.current = setInterval(() => {
+        try {
+          if (vol > 0) {
+            vol -= 5;
+            player.setVolume(vol);
+          } else {
+            clearInterval(fadeIntervalRef.current);
+            if (callback) callback();
+          }
+        } catch (e) { clearInterval(fadeIntervalRef.current); if (callback) callback(); }
+      }, 20);
+    } catch (e) { if (callback) callback(); }
   };
 
+  // Handle Resize for "Cover" Effect (No Black Bars)
+  useEffect(() => {
+    const handleResize = () => {
+      const container = document.getElementById('hero-container');
+      if (container) {
+        const { clientWidth, clientHeight } = container;
+        const targetAspect = 16 / 9; // YouTube aspect ratio
+        const containerAspect = clientWidth / clientHeight;
 
-  // Hover Logic for Video Playback
+        const ZOOM_FACTOR = 1.35; // Zoom to push Title Bar & Logo off-screen
+
+        if (containerAspect > targetAspect) {
+          // Container is wider than video (Panoramic) -> Match Width, Crop Vertical
+          setVideoDimensions({ width: clientWidth * ZOOM_FACTOR, height: (clientWidth / targetAspect) * ZOOM_FACTOR });
+        } else {
+          // Container is taller than video (Portrait/Box) -> Match Height, Crop Horizontal
+          setVideoDimensions({ width: (clientHeight * targetAspect) * ZOOM_FACTOR, height: clientHeight * ZOOM_FACTOR });
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    const timer = setTimeout(handleResize, 100); // Initial check
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Scroll Listener
+  const [isOutOfView, setIsOutOfView] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      // Pause if scrolled down more than 400px
+      const scrolled = window.scrollY > 400;
+      setIsOutOfView(scrolled);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Re-detect hover after alt-tab (focus/visibility change)
+  useEffect(() => {
+    const heroContainer = document.getElementById('hero-container');
+
+    const recheckHover = () => {
+      if (!heroContainer) return;
+
+      // Get mouse position from last known position or check if element is hovered
+      const rect = heroContainer.getBoundingClientRect();
+      const mouseX = (window as any).__lastMouseX ?? -1;
+      const mouseY = (window as any).__lastMouseY ?? -1;
+
+      const isMouseInside =
+        mouseX >= rect.left &&
+        mouseX <= rect.right &&
+        mouseY >= rect.top &&
+        mouseY <= rect.bottom;
+
+      setIsHovered(isMouseInside);
+    };
+
+    // Track mouse position globally
+    const trackMouse = (e: MouseEvent) => {
+      (window as any).__lastMouseX = e.clientX;
+      (window as any).__lastMouseY = e.clientY;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recheckHover();
+      }
+    };
+
+    const handleFocus = () => {
+      recheckHover();
+    };
+
+    window.addEventListener('mousemove', trackMouse);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('mousemove', trackMouse);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Handle Play/Pause based on Scroll & Hover with Audio Fade
   useEffect(() => {
     if (playerRef.current && isVideoReady && showVideo) {
-      if (isHovered) {
-        // Play
-        // If unmuted, set volume to 0 then fade in?
-        // Actually, just play.
-        playerRef.current.playVideo();
-        if (!isMuted) fadeAudioIn();
+      // Play if: Visible (not scrolled out) AND Hovered
+      const shouldPlay = !isOutOfView && isHovered;
+
+      if (shouldPlay) {
+        // Play sequence
+        try {
+          playerRef.current.playVideo();
+          if (!isMuted) fadeAudioIn();
+        } catch (e) { }
       } else {
-        // Pause with fade out
+        // Pause sequence with Fade
         if (!isMuted) {
           fadeAudioOut(() => {
             try { playerRef.current.pauseVideo(); } catch (e) { }
@@ -113,34 +244,20 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
         }
       }
     }
-  }, [isHovered, isVideoReady, showVideo, isMuted]);
+  }, [isOutOfView, isVideoReady, showVideo, isHovered, isMuted]);
 
-  // Scroll Listener
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 100) {
-        setShowVideo(false);
-        setIsVideoReady(false);
-      }
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+  // Sync mute state
 
-  // Sync mute state with player (Hard Mute Switch)
+
+  // Handle Seek Command (Resume from InfoModal)
   useEffect(() => {
-    if (playerRef.current && isVideoReady) {
-      if (isMuted) {
-        playerRef.current.mute();
-        if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
-      }
-      else {
-        playerRef.current.unMute();
-        // If we are currently hovered and playing, restore volume?
-        if (isHovered) playerRef.current.setVolume(100);
-      }
+    if (seekTime && seekTime > 0 && playerRef.current) {
+      try {
+        playerRef.current.seekTo(seekTime, true);
+        playerRef.current.playVideo();
+      } catch (e) { }
     }
-  }, [isMuted, isVideoReady, isHovered]);
+  }, [seekTime]);
 
   // Handle Movie Assets (Logo & Video)
   useEffect(() => {
@@ -171,10 +288,29 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
         videoTimerRef.current = setTimeout(async () => {
           if (window.scrollY < 100) {
             try {
-              const keys = await fetchTrailers(movie.id, mediaType);
-              if (keys && keys.length > 0) {
-                setTrailerQueue(keys);
-                setShowVideo(true);
+              // Search YouTube with smart fallback queries
+              const title = movie.title || movie.name;
+              if (title) {
+                // Extract year from release_date or first_air_date
+                const releaseDate = movie.release_date || movie.first_air_date;
+                const year = releaseDate ? releaseDate.split('-')[0] : undefined;
+
+                // Get production company if available (often in movie data)
+                const company = (movie as any).production_companies?.[0]?.name;
+
+                const keys = await searchTrailersWithFallback({
+                  title,
+                  year,
+                  company,
+                  type: mediaType
+                }, 5);
+
+                console.log('[HeroCarousel] YouTube trailers:', keys.length, 'for', title, year ? `(${year})` : '');
+
+                if (keys && keys.length > 0) {
+                  setTrailerQueue(keys);
+                  setShowVideo(true);
+                }
               }
             } catch (e) { }
           }
@@ -199,133 +335,84 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl 
 
   return (
     <div
+      id="hero-container"
       className="relative h-[55vh] sm:h-[70vh] md:h-[85vh] w-full overflow-hidden group bg-black"
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseLeave={(e) => {
+        // Prevent pause if moving to App Bar (Top < 60px) or Scroll Bar (Right > width-20px)
+        if (e.clientY < 60 || e.clientX > window.innerWidth - 20) return;
+        setIsHovered(false);
+      }}
     >
-      {/* Background Image - Visible initially. Hides ONLY if video is ready. 
-          If video pauses (mouse leave), video stays visible (opacity 100), so image remains hidden.
-      */}
-      <div className={`absolute inset-0 transition-opacity duration-1000 ease-in-out z-0 ${showVideo && isVideoReady ? "opacity-0" : "opacity-100"}`}>
-        <img
-          src={`${IMG_PATH}${movie.backdrop_path}`}
-          className="w-full h-full object-cover object-center"
-          alt="backdrop"
-        />
-      </div>
+      <HeroCarouselBackground
+        movie={movie}
+        showVideo={showVideo}
+        trailerQueue={trailerQueue}
+        isVideoReady={isVideoReady}
+        setIsVideoReady={setIsVideoReady}
+        setTrailerQueue={setTrailerQueue}
+        setShowVideo={setShowVideo}
+        isMuted={isMuted}
+        videoDimensions={videoDimensions}
+        playerRef={playerRef}
+        isHovered={isHovered}
+        replayCount={replayCount}
+        onSyncCheck={(videoId) => {
+          const state = getVideoState(movie.id);
+          return state?.videoId === videoId ? state.time : undefined;
+        }}
+        onVideoEnd={() => {
+          // Hide video and show image with replay button
+          setHasVideoEnded(true);
+          setShowVideo(false);
+          setIsVideoReady(false);
+        }}
+        youtubeQuality={networkQuality.quality}
+      />
 
-      {/* Background Video Layer */}
-      <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${showVideo && isVideoReady ? 'opacity-100' : 'opacity-0'}`}>
-        {showVideo && trailerQueue.length > 0 && (
-          <div className="absolute top-1/2 left-1/2 w-[140%] h-[140%] -translate-x-1/2 -translate-y-1/2 overflow-hidden pointer-events-none">
-            <YouTube
-              videoId={trailerQueue[0]}
-              className="w-full h-full object-cover"
-              onReady={(e) => {
-                playerRef.current = e.target;
-                setIsVideoReady(true);
-                if (isMuted) e.target.mute();
-                else e.target.unMute();
+      <HeroCarouselContent
+        movie={movie}
+        logoUrl={logoUrl}
+        isVideoReady={isVideoReady}
+        onPlay={onPlay}
+        onSelect={(m, time, videoId) => {
+          // Save to context for bidirectional sync
+          if (time !== undefined && videoId) {
+            updateVideoState(m.id, time, videoId);
+          }
+          onSelect(m, time, videoId);
+        }}
+        trailerVideoId={trailerQueue[0]}
+        currentTime={playerRef.current?.getCurrentTime() || 0}
+        hasVideoEnded={hasVideoEnded}
+      />
 
-                // Set initial volume to 0 if we assume fade-in on hover?
-                // If not hovered, pause.
-                if (!isHovered) {
-                  e.target.pauseVideo();
-                  e.target.setVolume(0);
-                } else {
-                  e.target.setVolume(100);
-                }
-              }}
-              onStateChange={(e) => {
-                if (e.data === 1) setIsVideoReady(true);
-              }}
-              onError={(e) => {
-                setTrailerQueue(prev => prev.slice(1));
-                if (trailerQueue.length <= 1) setShowVideo(false);
-              }}
-              opts={{
-                width: '100%',
-                height: '100%',
-                playerVars: {
-                  autoplay: 1,
-                  controls: 0,
-                  disablekb: 1,
-                  loop: 1,
-                  playlist: trailerQueue[0],
-                  modestbranding: 1,
-                  rel: 0,
-                  iv_load_policy: 3,
-                  fs: 0,
-                  cc_load_policy: 0,
-                }
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Gradients */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-black/30 to-transparent z-10 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/20 to-transparent z-10 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-24 md:h-32 bg-gradient-to-t from-[#141414] via-[#141414]/60 to-transparent z-10 pointer-events-none" />
-
-      {/* Content - Hidden when video is playing/ready? 
-          User said: "make the description hide when video start playing... description stays hidden [on pause]"
-          So hide if `isVideoReady`.
-      */}
-      <div className={`absolute top-0 left-0 w-full h-full flex flex-col justify-center z-20 pb-12 sm:pb-0 
-        pl-6 md:pl-14 lg:pl-20 pr-4 md:pr-12 pointer-events-none transition-opacity duration-700`}
-      >
-        <div className="mt-16 sm:mt-0 max-w-[90%] sm:max-w-lg md:max-w-2xl lg:max-w-3xl space-y-4 md:space-y-6 pointer-events-auto">
-
-          {/* Logo/Title */}
-          <div className={`h-16 sm:h-24 md:h-32 flex items-end mb-2 origin-bottom-left transition-all duration-700 ${isVideoReady ? 'scale-75 origin-bottom-left translate-y-24' : ''}`}>
-            {logoUrl ? (
-              <img src={logoUrl} alt="title logo" className="h-full object-contain drop-shadow-2xl" />
-            ) : (
-              <h1 className="text-3xl sm:text-4xl md:text-6xl font-black drop-shadow-xl leading-none text-white tracking-tight">
-                {movie?.name || movie?.title || ''}
-              </h1>
-            )}
-          </div>
-
-          {/* Description - Hides when video is ready */}
-          <p className={`text-sm md:text-base text-gray-100 line-clamp-3 drop-shadow-md font-normal leading-relaxed text-shadow-sm max-w-lg transition-opacity duration-700 ${isVideoReady ? 'opacity-0' : 'opacity-100'}`}>
-            {movie?.overview}
-          </p>
-
-          {/* Buttons - Moves down when video is ready */}
-          <div className={`flex items-center space-x-3 pt-2 transition-transform duration-700 ${isVideoReady ? 'translate-y-8' : ''}`}>
-            <button
-              onClick={() => onPlay(movie)}
-              className="flex items-center justify-center bg-white text-black px-5 md:px-7 h-10 md:h-12 rounded-[4px] font-bold hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm md:text-base"
-            >
-              <svg className="w-5 h-5 md:w-7 md:h-7 mr-1 md:mr-2 text-black fill-current" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z" /></svg>
-              Play
-            </button>
-            <button
-              onClick={() => onSelect(movie)}
-              className="flex items-center justify-center bg-gray-500/70 text-white px-6 md:px-9 h-10 md:h-12 rounded-[4px] font-bold hover:bg-gray-500/50 backdrop-blur-md transition transform hover:scale-105 active:scale-95 text-sm md:text-base"
-            >
-              <span className="material-icons mr-2 text-2xl md:text-3xl">info_outline</span>
-              More Info
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls (Mute & Rating) - Bottom Right */}
+      {/* Controls (Mute/Replay & Rating) - Bottom Right */}
       <div className="absolute right-0 bottom-1/3 flex items-center space-x-4 z-30 pointer-events-auto pr-0">
 
-        {/* Mute Button - Only show if video is active/ready */}
-        {showVideo && isVideoReady && (
+        {/* Mute Button - Shows when video is playing */}
+        {showVideo && isVideoReady && !hasVideoEnded && (
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="w-8 h-8 md:w-10 md:h-10 border border-white/50 rounded-full flex items-center justify-center bg-black/20 hover:bg-white/10 hover:border-white transition backdrop-blur-md group"
+            className="w-8 h-8 md:w-10 md:h-10 border border-white rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 transition backdrop-blur-md group"
           >
-            <span className="material-icons text-white group-hover:scale-110 transition-transform text-lg">
-              {isMuted ? 'volume_off' : 'volume_up'}
-            </span>
+            {isMuted ? <SpeakerSlashIcon size={20} className="text-white group-hover:scale-110 transition-transform" /> : <SpeakerHighIcon size={20} className="text-white group-hover:scale-110 transition-transform" />}
+          </button>
+        )}
+
+        {/* Replay Button - Shows when video has ended (same style as mute) */}
+        {hasVideoEnded && (
+          <button
+            onClick={() => {
+              setReplayCount(c => c + 1); // Force fresh YouTube mount
+              setHasVideoEnded(false);
+              setShowVideo(true);
+              setIsVideoReady(false);
+            }}
+            className="w-8 h-8 md:w-10 md:h-10 border border-white rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 transition backdrop-blur-md group"
+            title="Replay Trailer"
+          >
+            <ArrowCounterClockwise size={20} className="text-white group-hover:scale-110 transition-transform" />
           </button>
         )}
 

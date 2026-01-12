@@ -120,7 +120,7 @@ const SubtitlePreview: React.FC<SubtitlePreviewProps> = ({ settings, backdropUrl
     };
 
     return (
-        <div className="relative w-full h-full bg-black md:rounded-xl overflow-hidden shadow-2xl group select-none">
+        <div className="relative w-full h-full bg-black md:rounded-sm overflow-hidden shadow-2xl group select-none">
             {/* Background Image */}
             <div className="absolute inset-0">
                 <img

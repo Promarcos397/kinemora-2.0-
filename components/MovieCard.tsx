@@ -1,4 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { SpeakerSlashIcon, SpeakerHighIcon, PlayIcon, CheckIcon, PlusIcon, ThumbsUpIcon, CaretDownIcon } from '@phosphor-icons/react';
+import { useYouTubePlayer } from '../hooks/useYouTubePlayer';
 import YouTube from 'react-youtube';
 import { Movie } from '../types';
 import { useGlobalContext } from '../context/GlobalContext';
@@ -7,16 +10,16 @@ import { fetchTrailer, getMovieImages } from '../services/api';
 
 interface MovieCardProps {
   movie: Movie;
-  onSelect: (movie: Movie) => void;
+  onSelect: (movie: Movie, time?: number, videoId?: string) => void;
   isGrid?: boolean;
 }
 
 const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }) => {
-  const { myList, toggleList } = useGlobalContext();
+  const { t } = useTranslation();
+  const { myList, toggleList, getVideoState, updateVideoState } = useGlobalContext();
   const [isHovered, setIsHovered] = useState(false);
-  const [trailerUrl, setTrailerUrl] = useState("");
+  const { trailerUrl, setTrailerUrl, isMuted, setIsMuted, playerRef } = useYouTubePlayer();
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
 
   // 'center' | 'left' | 'right' - determines expansion direction
   const [hoverPosition, setHoverPosition] = useState<'center' | 'left' | 'right'>('center');
@@ -24,7 +27,6 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
   const isAdded = myList.find(m => m.id === movie.id);
   const timerRef = useRef<any>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
 
   // --- Dynamic Badge Logic ---
   const getBadgeInfo = () => {
@@ -39,20 +41,20 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
 
     // Future Release
     if (diffDays > 0) {
-      return { text: "COMING SOON", type: "upcoming" };
+      return { text: t('badges.comingSoon'), type: "upcoming" };
     }
 
     // Released within last 60 days
     if (diffDays >= -60) {
       return {
-        text: movie.media_type === 'tv' ? "NEW EPISODES" : "RECENTLY ADDED",
+        text: movie.media_type === 'tv' ? t('badges.newEpisodes') : t('badges.recentlyAdded'),
         type: "new"
       };
     }
 
     // High Rating (Top Rated)
     if (movie.vote_average >= 8.0) {
-      return { text: "TOP RATED", type: "top" };
+      return { text: t('badges.topRated'), type: "top" };
     }
 
     return null;
@@ -83,19 +85,11 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
     return () => { isMounted = false; };
   }, [movie.id, movie.media_type, movie.title]);
 
-  // Sync mute state with player instance
-  useEffect(() => {
-    if (playerRef.current) {
-      if (isMuted) {
-        playerRef.current.mute();
-      } else {
-        playerRef.current.unMute();
-      }
-    }
-  }, [isMuted]);
+
+
 
   const handleMouseEnter = (e: React.MouseEvent) => {
-    if (isGrid) return; // Disable hover effect on grid views to avoid clutter
+    // Hover works on all views including grid (My List)
 
     // Determine screen position for smart popup alignment
     if (cardRef.current) {
@@ -134,7 +128,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
 
   const getGenreNames = () => {
     if (!movie.genre_ids) return [];
-    return movie.genre_ids.map(id => GENRES[id]).filter(Boolean).slice(0, 3);
+    return movie.genre_ids.map(id => t(`genres.${id}`, { defaultValue: GENRES[id] })).filter(Boolean).slice(0, 3);
   };
 
   // Dynamic Class Calculation
@@ -144,6 +138,15 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
       case 'right': return 'right-0 origin-right';
       default: return 'left-1/2 -ml-[150px] md:-ml-[180px] origin-center';
     }
+  };
+
+  // Handler that saves state to context before opening modal
+  const handleOpenModal = () => {
+    const currentTime = playerRef.current?.getCurrentTime() || 0;
+    if (trailerUrl) {
+      updateVideoState(movie.id, currentTime, trailerUrl);
+    }
+    onSelect(movie, currentTime, trailerUrl);
   };
 
   return (
@@ -161,10 +164,23 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
       {/* Base Image */}
       <img
         src={`https://image.tmdb.org/t/p/w500${movie.backdrop_path || movie.poster_path}`}
-        className={`w-full h-full object-cover ${isGrid ? 'rounded-md' : 'rounded-sm md:rounded-md'}`}
+        className={`w-full h-full object-cover ${isGrid ? 'rounded-sm' : 'rounded-sm'}`}
         alt={movie.name || movie.title}
         loading="lazy"
       />
+
+      {/* Progress Bar for Continue Watching */}
+      {(() => {
+        const completion = parseFloat(localStorage.getItem(`kinemora-completion-${movie.id}`) || '0');
+        if (completion > 0 && completion < 98) {
+          return (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700/50 z-20">
+              <div className="h-full bg-[#E50914]" style={{ width: `${completion}%` }} />
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       {/* Base Title Overlay (Show when not hovering OR if in grid mode) */}
       {!isHovered && (
@@ -192,14 +208,14 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
         </>
       )}
 
-      {/* Hover Popup - Only active if NOT grid */}
-      {isHovered && !isGrid && (
+      {/* Hover Popup - Active on all views */}
+      {isHovered && (
         <div
-          className={`absolute top-[-70px] md:top-[-100px] w-[300px] md:w-[360px] bg-[#141414] rounded-md shadow-black/80 shadow-2xl z-[40] animate-scaleIn overflow-hidden ring-1 ring-zinc-800 ${getPositionClasses()}`}
+          className={`absolute top-[-70px] md:top-[-100px] w-[300px] md:w-[360px] bg-[#141414] rounded-sm shadow-black/80 shadow-2xl z-[40] animate-scaleIn overflow-hidden ring-1 ring-zinc-800 ${getPositionClasses()}`}
           onClick={(e) => e.stopPropagation()} // Prevent click from bubbling to base card
         >
           {/* Media Container */}
-          <div className="relative h-[170px] md:h-[200px] bg-[#141414] overflow-hidden" onClick={() => onSelect(movie)}>
+          <div className="relative h-[170px] md:h-[200px] bg-[#141414] overflow-hidden" onClick={handleOpenModal}>
             {trailerUrl ? (
               <div className="absolute top-[40%] left-1/2 w-[200%] h-[200%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
                 <YouTube
@@ -218,6 +234,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
                       rel: 0,
                       iv_load_policy: 3,
                       cc_load_policy: 0,
+                      // No start offset - seamless playback
                     }
                   }}
                   onReady={(e) => {
@@ -227,6 +244,17 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
                     } else {
                       e.target.unMute();
                     }
+
+                    // Seamless sync from Context - only seek if same video
+                    const savedState = getVideoState(movie.id);
+                    if (savedState && savedState.time > 0 && savedState.videoId === trailerUrl) {
+                      e.target.seekTo(savedState.time, true);
+                    }
+                  }}
+                  onEnd={(e) => {
+                    // Seamless loop from start
+                    e.target.seekTo(0);
+                    e.target.playVideo();
                   }}
                   className="w-full h-full object-cover"
                 />
@@ -241,7 +269,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
                 onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
                 className="absolute bottom-4 right-4 w-8 h-8 rounded-full border border-white/30 bg-black/50 hover:bg-white/10 flex items-center justify-center transition"
               >
-                <span className="material-icons text-white text-xs">{isMuted ? 'volume_off' : 'volume_up'}</span>
+                {isMuted ? <SpeakerSlashIcon size={12} className="text-white" /> : <SpeakerHighIcon size={12} className="text-white" />}
               </button>
             )}
 
@@ -263,10 +291,10 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
               <div className="flex space-x-2">
                 {/* Play Button - Solid White */}
                 <button
-                  onClick={() => onSelect(movie)}
+                  onClick={handleOpenModal}
                   className="bg-white text-black rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:bg-neutral-200 transition"
                 >
-                  <span className="material-icons text-2xl md:text-3xl ml-0.5">play_arrow</span>
+                  <PlayIcon size={30} weight="fill" className="ml-0.5" />
                 </button>
                 {/* Add to List - Outline */}
                 <button
@@ -274,27 +302,27 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
                   className="border-2 border-gray-400 bg-[#2a2a2a]/60 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-gray-300 hover:border-white hover:text-white transition group"
                   title="Add to My List"
                 >
-                  <span className="material-icons text-lg md:text-xl group-hover:scale-100">{isAdded ? 'check' : 'add'}</span>
+                  <span className="text-lg md:text-xl group-hover:scale-100 flex items-center">{isAdded ? <CheckIcon size={20} /> : <PlusIcon size={20} />}</span>
                 </button>
                 {/* Like - Outline */}
                 <button className="border-2 border-gray-400 bg-[#2a2a2a]/60 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-gray-300 hover:border-white hover:text-white transition">
-                  <span className="material-icons text-sm md:text-base">thumb_up</span>
+                  <ThumbsUpIcon size={16} />
                 </button>
               </div>
 
               {/* More Info - Chevron Down */}
               <button
-                onClick={() => onSelect(movie)}
+                onClick={handleOpenModal}
                 className="border-2 border-gray-400 bg-[#2a2a2a]/60 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:border-white transition text-gray-300 hover:text-white ml-auto"
                 title="More Info"
               >
-                <span className="material-icons text-xl md:text-2xl">keyboard_arrow_down</span>
+                <CaretDownIcon size={24} />
               </button>
             </div>
 
             {/* Metadata Row */}
             <div className="flex items-center flex-wrap gap-2 text-sm font-medium">
-              <span className="text-[#46d369] font-bold">{(movie.vote_average * 10).toFixed(0)}% Match</span>
+              <span className="text-[#46d369] font-bold">{t('common.match', { score: (movie.vote_average * 10).toFixed(0) })}</span>
 
               {/* Age Rating */}
               {movie.adult ? (
@@ -308,7 +336,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
               )}
 
               {/* Duration / Seasons */}
-              <span className="text-gray-400 text-xs">{(movie.media_type === 'tv' ? 'Series' : 'Movie')}</span>
+              <span className="text-gray-400 text-xs">{(movie.media_type === 'tv' ? t('common.series') : t('common.movie'))}</span>
 
               <span className="border border-gray-500 text-gray-400 px-1 py-[0.5px] text-[9px] rounded-[2px] h-fit flex items-center">HD</span>
             </div>

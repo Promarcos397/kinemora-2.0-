@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { FacebookLogoIcon, InstagramLogoIcon, TwitterLogoIcon, YoutubeLogoIcon } from '@phosphor-icons/react';
 
 const Footer: React.FC = () => {
   const [showServiceCode, setShowServiceCode] = useState(false);
@@ -20,27 +21,21 @@ const Footer: React.FC = () => {
   return (
     <footer className="w-full bg-[#141414] text-[#808080] py-12 px-6 md:px-14 lg:px-20 text-sm mt-12 border-t border-gray-800/30">
       <div className="max-w-[1000px] mx-auto">
-        
+
         {/* Social Icons */}
         <div className="flex space-x-6 mb-8">
-          {socialIcons.map((icon) => (
-            <svg 
-              key={icon.name} 
-              className="w-6 h-6 fill-current hover:text-white cursor-pointer transition-colors duration-200" 
-              viewBox="0 0 24 24" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d={icon.path} />
-            </svg>
-          ))}
+          <FacebookLogoIcon size={24} weight="fill" className="hover:text-white cursor-pointer transition-colors duration-200" />
+          <InstagramLogoIcon size={24} weight="fill" className="hover:text-white cursor-pointer transition-colors duration-200" />
+          <TwitterLogoIcon size={24} weight="fill" className="hover:text-white cursor-pointer transition-colors duration-200" />
+          <YoutubeLogoIcon size={24} weight="fill" className="hover:text-white cursor-pointer transition-colors duration-200" />
         </div>
 
         {/* Links Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-8 mb-8">
           {links.map((link) => (
-            <a 
-              key={link} 
-              href="#" 
+            <a
+              key={link}
+              href="#"
               className="hover:underline hover:text-white transition-colors duration-200 text-xs md:text-sm"
               onClick={(e) => e.preventDefault()}
             >
@@ -51,7 +46,7 @@ const Footer: React.FC = () => {
 
         {/* Service Code Button */}
         <div className="mb-6">
-          <button 
+          <button
             onClick={() => setShowServiceCode(!showServiceCode)}
             className="border border-[#808080] px-4 py-1.5 hover:text-white hover:border-white transition-colors duration-200 text-xs tracking-wide uppercase"
           >

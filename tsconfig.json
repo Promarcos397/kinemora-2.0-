@@ -17,6 +17,7 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
+        "./services/p-stream-providers/*",
         "./*"
       ]
     },

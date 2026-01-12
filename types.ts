@@ -20,6 +20,8 @@ export interface Movie {
   number_of_seasons?: number;
   genres?: { id: number; name: string }[];
   imdb_id?: string;
+  vote_count?: number;
+  popularity?: number;
 }
 
 export interface Episode {
@@ -79,4 +81,36 @@ export interface AppSettings {
   subtitleFontFamily: 'sans-serif' | 'serif' | 'monospace' | 'cursive' | 'display' | 'typewriter' | 'print' | 'block' | 'casual' | 'small-caps';
   subtitleEdgeStyle: 'none' | 'outline' | 'drop-shadow' | 'raised' | 'depressed' | 'uniform';
   subtitleWindowColor: 'black' | 'white' | 'blue';
+
+  // Language Settings
+  displayLanguage: string;  // TMDB content language (e.g., 'en-US', 'es-ES', 'fr-FR')
+  subtitleLanguage: string; // Preferred subtitle language (e.g., 'en', 'es', 'fr')
+}
+
+// Streaming types
+export interface StreamSource {
+  url: string;
+  quality: string;
+  isM3U8: boolean;
+  provider: string;
+}
+
+export interface StreamResult {
+  sources: StreamSource[];
+  subtitles: { url: string; lang: string }[];
+  headers?: Record<string, string>;
+}
+
+declare global {
+  interface Window {
+    electron: {
+      request: (options: any) => Promise<any>;
+      minimize: () => void;
+      maximize: () => void;
+      close: () => void;
+      // Streaming API (runs in main process)
+      getMovieStream: (title: string, year: number, tmdbId: string) => Promise<any>;
+      getTvStream: (title: string, season: number, episode: number, year: number, tmdbId: string) => Promise<any>;
+    };
+  }
 }
