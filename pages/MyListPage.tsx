@@ -9,7 +9,7 @@ interface PageProps {
   onSelectMovie: (movie: Movie) => void;
 }
 
-type FilterType = 'all' | 'movie' | 'tv';
+type FilterType = 'all' | 'movie' | 'tv' | 'comic';
 type SortType = 'date_added' | 'title' | 'rating' | 'release_date';
 
 const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
@@ -25,8 +25,13 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
     // 1. Filter
     if (filter !== 'all') {
       list = list.filter(m => {
-        // Robust check for media type
         const type = m.media_type || (m.title ? 'movie' : 'tv');
+
+        // Group all book types under 'comic'
+        if (filter === 'comic') {
+          return ['series', 'comic', 'manga', 'local'].includes(type);
+        }
+
         return type === filter;
       });
     }
@@ -47,13 +52,11 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
         list.sort((a, b) => {
           const dateA = new Date(a.release_date || a.first_air_date || 0).getTime();
           const dateB = new Date(b.release_date || b.first_air_date || 0).getTime();
-          return dateB - dateA; // Newest releases first
+          return dateB - dateA;
         });
         break;
       case 'date_added':
       default:
-        // Assuming the list in context is ordered by insertion (oldest -> newest).
-        // We reverse it to show newest added at the top.
         list.reverse();
         break;
     }
@@ -70,13 +73,13 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
           <div className="flex flex-wrap items-center gap-4 text-sm animate-fadeIn">
             {/* Filter Group */}
             <div className="flex bg-[#222] rounded p-1 border border-white/10">
-              {(['all', 'movie', 'tv'] as FilterType[]).map(f => (
+              {(['all', 'movie', 'tv', 'comic'] as FilterType[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`px-3 md:px-4 py-1.5 rounded transition capitalize text-xs md:text-sm ${filter === f ? 'bg-white text-black font-bold' : 'text-gray-400 hover:text-white'}`}
                 >
-                  {f === 'all' ? t('list.all') : f === 'movie' ? t('list.movies') : t('list.shows')}
+                  {f === 'all' ? t('list.all') : f === 'movie' ? t('list.movies') : f === 'tv' ? t('list.shows') : 'Reads'}
                 </button>
               ))}
             </div>
@@ -103,7 +106,7 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
 
       {myList.length > 0 ? (
         processedList.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-8 animate-fadeIn">
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-x-6 gap-y-10 animate-fadeIn">
             {processedList.map(movie => (
               <div key={movie.id} className="relative group">
                 <MovieCard movie={movie} onSelect={onSelectMovie} isGrid={true} />

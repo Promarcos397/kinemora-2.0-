@@ -8,7 +8,6 @@ interface TitleBarProps {
 const TitleBar: React.FC<TitleBarProps> = ({ isOverlay = false }) => {
     const { pageTitle } = useTitle();
     const [isFullscreen, setIsFullscreen] = React.useState(false);
-    const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer;
 
     React.useEffect(() => {
         const handleFullscreenChange = () => {
@@ -18,9 +17,9 @@ const TitleBar: React.FC<TitleBarProps> = ({ isOverlay = false }) => {
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, []);
 
-    const handleMinimize = () => ipcRenderer?.send('window-minimize');
-    const handleMaximize = () => ipcRenderer?.send('window-maximize');
-    const handleClose = () => ipcRenderer?.send('window-close');
+    const handleMinimize = () => window.electron?.minimize();
+    const handleMaximize = () => window.electron?.maximize();
+    const handleClose = () => window.electron?.close();
 
     if (isFullscreen) return null;
 

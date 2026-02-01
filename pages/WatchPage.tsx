@@ -15,9 +15,28 @@ const WatchPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Get season and episode from URL params (for TV shows)
-    const season = parseInt(searchParams.get('season') || searchParams.get('s') || '1', 10);
-    const episode = parseInt(searchParams.get('episode') || searchParams.get('e') || '1', 10);
+    // Get season and episode from URL params, fallback to localStorage
+    const urlSeason = searchParams.get('season') || searchParams.get('s');
+    const urlEpisode = searchParams.get('episode') || searchParams.get('e');
+
+    // If URL has params, use them; otherwise try localStorage for TV shows
+    let season = 1, episode = 1;
+    if (urlSeason && urlEpisode) {
+        season = parseInt(urlSeason, 10);
+        episode = parseInt(urlEpisode, 10);
+    } else if (type === 'tv' && id) {
+        // Fallback to localStorage resume context
+        try {
+            const saved = localStorage.getItem(`kinemora-last-watched-${id}`);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                season = parsed.season || 1;
+                episode = parsed.episode || 1;
+            }
+        } catch (e) {
+            console.warn('Failed to load resume context from localStorage');
+        }
+    }
 
     useEffect(() => {
         const fetchDetails = async () => {

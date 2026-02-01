@@ -151,7 +151,7 @@ const HeroCarouselBackground: React.FC<HeroCarouselBackgroundProps> = ({
             <div className={`absolute inset-0 transition-opacity duration-700 ease-in-out z-0 ${showVideo && isVideoReady && !isVideoHidden ? "opacity-0" : "opacity-100"}`}>
                 <img
                     src={`${IMG_PATH}${movie.backdrop_path}`}
-                    className="w-full h-full object-cover object-center"
+                    className={`w-full h-full object-cover ${['series', 'comic', 'manga', 'local'].includes(movie.media_type || '') ? 'object-[50%_30%]' : 'object-center'}`}
                     alt="backdrop"
                 />
             </div>

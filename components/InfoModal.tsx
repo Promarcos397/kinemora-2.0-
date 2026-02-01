@@ -5,7 +5,7 @@ import YouTube from 'react-youtube';
 import { Movie, Episode } from '../types';
 import { IMG_PATH } from '../constants';
 import { useGlobalContext } from '../context/GlobalContext';
-import { fetchTrailers, getSeasonDetails } from '../services/api';
+import { fetchTrailers, getSeasonDetails, prefetchStream } from '../services/api';
 import InfoModalEpisodes from './InfoModalEpisodes';
 import InfoModalRecommendations from './InfoModalRecommendations';
 import { useMovieData } from '../hooks/useMovieData';
@@ -96,6 +96,21 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
                 });
             }
 
+            // 3. Prefetch stream (user likely to click play)
+            const api = (window as any).electron?.consumet;
+            if (api?.prefetchStream) {
+                const releaseDate = movie.release_date || movie.first_air_date;
+                const year = releaseDate ? new Date(releaseDate).getFullYear() : undefined;
+                console.log('[InfoModal] Prefetching stream for:', movie.title || movie.name);
+                api.prefetchStream(
+                    movie.title || movie.name,
+                    mediaType,
+                    year,
+                    mediaType === 'tv' ? (resumeContext?.season || 1) : undefined,
+                    mediaType === 'tv' ? (resumeContext?.episode || 1) : undefined
+                );
+            }
+
             // 5. Fetch Episodes (if TV)
             if (mediaType === 'tv') {
                 // If we have a resume context, fetch THAT season. Otherwise fetch season 1.
@@ -120,8 +135,8 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
 
     const fetchEpisodes = useCallback(async (id: number, season: number) => {
         setLoadingEpisodes(true);
-        const eps = await getSeasonDetails(id, season);
-        setEpisodes(eps);
+        const response = await getSeasonDetails(id, season);
+        setEpisodes(response?.episodes || []);
         setLoadingEpisodes(false);
     }, []);
 
@@ -130,7 +145,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
         if (mediaType === 'tv' && movie) {
             // If resumeContext exists, we might want to prioritize it, but this effect runs on selectedSeason change.
             // If resumeContext set selectedSeason, this effect runs and fetches correct episodes.
-            fetchEpisodes(movie.id, selectedSeason);
+            fetchEpisodes(Number(movie.id), selectedSeason);
         }
     }, [selectedSeason, mediaType, movie, fetchEpisodes]);
 
@@ -140,6 +155,23 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
             else playerRef.current.unMute();
         }
     }, [isMuted]);
+
+    // Prefetch stream
+    useEffect(() => {
+        if (!movie) return;
+        const yearStr = (movie.release_date || movie.first_air_date)?.substring(0, 4);
+        const year = yearStr ? parseInt(yearStr) : 0;
+        if (!year) return;
+
+        if (mediaType === 'movie') {
+            prefetchStream(movie.title || movie.name || '', year, String(movie.id), 'movie');
+        } else {
+            // TV: Prefetch resumed or S1E1
+            const s = resumeContext?.season || 1;
+            const e = resumeContext?.episode || 1;
+            prefetchStream(movie.name || movie.title || '', year, String(movie.id), 'tv', s, e);
+        }
+    }, [movie, resumeContext, mediaType]);
 
     if (!movie) return null;
 
@@ -262,7 +294,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
                             {logoUrl ? (
                                 <img src={logoUrl} alt={activeMovie.title} className="h-24 md:h-32 object-contain origin-bottom-left" />
                             ) : (
-                                <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white drop-shadow-xl leading-none">
+                                <h2 className="text-3xl sm:text-4xl md:text-5xl font-black font-leaner text-white drop-shadow-xl leading-none tracking-wide">
                                     {activeMovie.title || activeMovie.name}
                                 </h2>
                             )}

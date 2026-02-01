@@ -16,15 +16,19 @@ interface HeroCarouselProps {
   onPlay: (movie: Movie) => void;
   fetchUrl?: string;
   seekTime?: number; // Command to seek
+  heroMovie?: Movie; // Optional: Override with explicit movie (e.g. Cloud Series)
 }
 
-const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl, seekTime }) => {
+const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl, seekTime, heroMovie }) => {
   const { getVideoState, updateVideoState } = useGlobalContext();
   const networkQuality = useNetworkQuality();
   const [movie, setMovie] = useState<Movie | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
+
+  // ... (Smart Video State omitted for brevity, referencing lines 29-41 in original if needed, but I am replacing top block)
+  // Wait, I should not delete lines 29-41. I will only replace the top part and the useEffect.
 
   // Smart Video State
   const [trailerQueue, setTrailerQueue] = useState<string[]>([]);
@@ -57,10 +61,19 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
     return 'home';
   };
 
-  // Fetch One Movie (Daily Consistent)
+  // Fetch One Movie (Daily Consistent) OR Use Provided Hero Movie
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+
+      // 1. Explicit Override (Cloud Library)
+      if (heroMovie) {
+        setMovie(heroMovie);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Fetch from TMDB
       try {
         const url = fetchUrl || REQUESTS.fetchNetflixOriginals;
         const request = await axios.get<TMDBResponse>(url);
@@ -70,7 +83,18 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
           // Use date-seeded index for daily consistent selection
           const pageType = getPageType(url);
           const dailyIndex = getDailyIndex(validResults, pageType);
-          setMovie(validResults[dailyIndex]);
+          const selectedMovie = validResults[dailyIndex];
+          setMovie(selectedMovie);
+
+          // Prefetch stream for hero movie (user likely to click play)
+          const api = (window as any).electron?.consumet;
+          if (api?.prefetchStream && selectedMovie) {
+            const mediaType = selectedMovie.media_type || (selectedMovie.title ? 'movie' : 'tv');
+            const releaseDate = selectedMovie.release_date || selectedMovie.first_air_date;
+            const year = releaseDate ? new Date(releaseDate).getFullYear() : undefined;
+            console.log('[HeroCarousel] Prefetching stream for:', selectedMovie.title || selectedMovie.name);
+            api.prefetchStream(selectedMovie.title || selectedMovie.name, mediaType, year, 1, 1);
+          }
         }
         setLoading(false);
       } catch (error) {
@@ -79,7 +103,7 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
       }
     }
     fetchData();
-  }, [fetchUrl]);
+  }, [fetchUrl, heroMovie]);
 
   // Audio Fading Logic
   const fadeAudioIn = () => {

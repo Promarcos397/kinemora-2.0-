@@ -1,15 +1,16 @@
 
 export interface Movie {
-  id: number;
+  id: number | string;
   title?: string;
   name?: string;
   poster_path?: string;
   backdrop_path?: string;
+  image_url?: string; // For books/manga
   overview: string;
   vote_average: number;
   release_date?: string;
   first_air_date?: string;
-  media_type?: 'movie' | 'tv' | 'person' | string;
+  media_type?: 'movie' | 'tv' | 'person' | 'comic' | 'manga' | 'local' | 'cloud' | 'series' | string;
   genre_ids?: number[];
   adult?: boolean;
   original_language?: string;

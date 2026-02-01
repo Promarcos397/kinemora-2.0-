@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import {
     PlayIcon,
     PauseIcon,
@@ -21,6 +21,8 @@ interface VideoPlayerControlsProps {
     isMuted: boolean;
     progress: number;
     duration: number;
+    currentTime?: number;
+    buffered?: number;
     isBuffering: boolean;
     showNextEp: boolean;
     title: React.ReactNode;
@@ -45,10 +47,25 @@ interface VideoPlayerControlsProps {
     showUI: boolean;
 }
 
+// Format time as MM:SS or HH:MM:SS
+const formatTime = (seconds: number): string => {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) {
+        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
 const VideoPlayerControls: React.FC<VideoPlayerControlsProps> = ({
     isPlaying,
     isMuted,
     progress,
+    duration,
+    currentTime = 0,
+    buffered = 0,
     isBuffering,
     showNextEp,
     title,
@@ -73,8 +90,12 @@ const VideoPlayerControls: React.FC<VideoPlayerControlsProps> = ({
 }) => {
     const { t } = useTranslation();
     const timelineRef = useRef<HTMLDivElement>(null);
+    const [isHovering, setIsHovering] = useState(false);
+    const [hoverPosition, setHoverPosition] = useState(0);
+    const [hoverTime, setHoverTime] = useState(0);
+    const [isDragging, setIsDragging] = useState(false);
 
-    const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const handleTimelineClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         e.stopPropagation();
         if (timelineRef.current) {
             const rect = timelineRef.current.getBoundingClientRect();
@@ -82,33 +103,98 @@ const VideoPlayerControls: React.FC<VideoPlayerControlsProps> = ({
             const perc = Math.max(0, Math.min(100, (x / rect.width) * 100));
             onTimelineSeek(perc);
         }
-    };
+    }, [onTimelineSeek]);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (timelineRef.current) {
+            const rect = timelineRef.current.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const perc = Math.max(0, Math.min(100, (x / rect.width) * 100));
+            setHoverPosition(perc);
+            setHoverTime((perc / 100) * duration);
+
+            // If dragging, seek in real-time
+            if (isDragging) {
+                onTimelineSeek(perc);
+            }
+        }
+    }, [duration, isDragging, onTimelineSeek]);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        e.stopPropagation();
+        setIsDragging(true);
+        handleTimelineClick(e);
+    }, [handleTimelineClick]);
+
+    const handleMouseUp = useCallback(() => {
+        setIsDragging(false);
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        setIsHovering(false);
+        setIsDragging(false);
+    }, []);
 
     return (
         <div className={`absolute inset-x-0 bottom-0 z-50 bg-gradient-to-t from-black via-black/80 to-transparent px-8 pb-8 pt-20 transition-opacity duration-300 ${showUI ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-            {/* Timeline - P-Stream Style */}
+            {/* Timeline - Improved with hover preview */}
             <div
                 ref={timelineRef}
-                className={`relative w-full h-1 hover:h-1.5 transition-[height] duration-200 cursor-pointer flex items-center group/timeline mb-6 ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                className={`relative w-full cursor-pointer group/timeline mb-4 ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                 onClick={handleTimelineClick}
+                onMouseEnter={() => setIsHovering(true)}
+                onMouseLeave={handleMouseLeave}
+                onMouseMove={handleMouseMove}
+                onMouseDown={handleMouseDown}
+                onMouseUp={handleMouseUp}
             >
-                {/* Background Track */}
-                <div className="absolute top-0 left-0 w-full h-full bg-white/20 rounded-full" />
+                {/* Hover Time Preview */}
+                {isHovering && !isMenuOpen && (
+                    <div
+                        className="absolute -top-10 transform -translate-x-1/2 bg-black/90 text-white text-sm px-2 py-1 rounded pointer-events-none z-50 whitespace-nowrap"
+                        style={{ left: `${hoverPosition}%` }}
+                    >
+                        {formatTime(hoverTime)}
+                    </div>
+                )}
 
-                {/* Buffered */}
-                <div
-                    className="absolute top-0 left-0 h-full bg-white/40 rounded-full transition-all duration-300"
-                    style={{ width: isBuffering ? '100%' : '0%' }} // Note: We need real buffer progress later, using isBuffering for now as visual placeholder or 0
-                />
+                {/* Track Container - taller hit area */}
+                <div className="relative w-full h-6 flex items-center">
+                    {/* Background Track */}
+                    <div className="absolute left-0 w-full h-1 group-hover/timeline:h-1.5 bg-white/20 rounded-full transition-all duration-150" />
 
-                {/* Filled Progress */}
-                <div
-                    className="absolute top-0 left-0 h-full bg-[#E50914] rounded-full flex items-center justify-end"
-                    style={{ width: `${progress}%` }}
-                >
-                    {/* Handle */}
-                    <div className="w-4 h-4 bg-[#E50914] rounded-full shadow-md transform scale-0 group-hover/timeline:scale-100 transition-transform duration-200 translate-x-1/2" />
+                    {/* Buffered Progress */}
+                    <div
+                        className="absolute left-0 h-1 group-hover/timeline:h-1.5 bg-white/40 rounded-full transition-all duration-150"
+                        style={{ width: `${buffered}%` }}
+                    />
+
+                    {/* Hover Preview (ghost progress) */}
+                    {isHovering && (
+                        <div
+                            className="absolute left-0 h-1 group-hover/timeline:h-1.5 bg-white/20 rounded-full transition-all duration-150"
+                            style={{ width: `${hoverPosition}%` }}
+                        />
+                    )}
+
+                    {/* Filled Progress */}
+                    <div
+                        className="absolute left-0 h-1 group-hover/timeline:h-1.5 bg-[#E50914] rounded-full transition-all duration-150"
+                        style={{ width: `${progress}%` }}
+                    />
+
+                    {/* Scrubber Handle */}
+                    <div
+                        className="absolute h-4 w-4 bg-[#E50914] rounded-full shadow-lg transform -translate-x-1/2 scale-0 group-hover/timeline:scale-100 transition-transform duration-150 z-10"
+                        style={{ left: `${progress}%` }}
+                    />
                 </div>
+            </div>
+
+            {/* Time Display */}
+            <div className={`flex justify-between text-sm text-white/70 mb-4 ${isMenuOpen ? 'opacity-0' : 'opacity-100'}`}>
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
             </div>
 
             <div className="relative flex items-center justify-between">

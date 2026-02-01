@@ -24,19 +24,14 @@ const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="bg-[#141414] min-h-screen font-sans text-white selection:bg-red-600 selection:text-white">
-      {/* Add top padding equal to TitleBar height (32px/h-8) + Navbar usage. Navbar is fixed too. */}
-      {/* Actually Layout wraps content. Navbar is inside layout. */}
-      {/* TitleBar is fixed (h-8). Navbar is fixed (top-0). */}
-      {/* If TitleBar is at top, Navbar should be top-8. */}
-      <div className="pt-8">
-        <Navbar
-          isScrolled={isScrolled}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
-      </div>
+      {/* Navbar is fixed at top-8 (below TitleBar) */}
+      <Navbar
+        isScrolled={isScrolled}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
 
       {/* Main Content Area */}
       <div className="min-h-screen">

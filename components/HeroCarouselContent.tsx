@@ -36,7 +36,7 @@ const HeroCarouselContent: React.FC<HeroCarouselContentProps> = ({
                     {logoUrl ? (
                         <img src={logoUrl} alt="title logo" className="h-full object-contain drop-shadow-2xl" />
                     ) : (
-                        <h1 className="text-3xl sm:text-4xl md:text-6xl font-black drop-shadow-xl leading-none text-white tracking-tight">
+                        <h1 className="text-3xl sm:text-5xl md:text-6xl font-black font-leaner drop-shadow-xl leading-none text-white tracking-wide">
                             {movie?.name || movie?.title || ''}
                         </h1>
                     )}

@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Episode } from '../types';
 import { ArrowLeftIcon, XIcon, CaretDownIcon, PlayCircleIcon, CheckIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
+import { useGlobalContext } from '../context/GlobalContext';
 
 interface PopupPanelProps {
     title: string;
@@ -101,17 +102,29 @@ const EpisodeExplorer: React.FC<{
     selectedSeason: number;
     currentEpisode: number;
     playingSeason?: number;
+    showId: number | string;  // Added for progress lookup
     onSeasonSelect: (season: number) => void;
     onEpisodeSelect: (ep: Episode) => void;
+    onEpisodeExpand?: (season: number, episode: number) => void;  // Prefetch callback
     activePanel: 'seasons' | 'episodes' | string;
     setActivePanel: (panel: any) => void;
     showTitle?: string;
     onPanelHover?: () => void;
     onClose?: () => void;
-}> = ({ seasonList, currentSeasonEpisodes, selectedSeason, currentEpisode, playingSeason, onSeasonSelect, onEpisodeSelect, activePanel, setActivePanel, showTitle, onPanelHover, onClose }) => {
+}> = ({ seasonList, currentSeasonEpisodes, selectedSeason, currentEpisode, playingSeason, showId, onSeasonSelect, onEpisodeSelect, onEpisodeExpand, activePanel, setActivePanel, showTitle, onPanelHover, onClose }) => {
     const { t } = useTranslation();
+    const { getEpisodeProgress } = useGlobalContext();
     const [previewSeason, setPreviewSeason] = React.useState(selectedSeason);
     const [expandedEpisodeId, setExpandedEpisodeId] = React.useState<number | null>(null);
+    const episodesContainerRef = useRef<HTMLDivElement>(null);
+    const currentEpisodeRef = useRef<HTMLDivElement>(null);
+
+    // Format seconds to MM:SS
+    const formatTime = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
 
     // Sync preview
     React.useEffect(() => {
@@ -132,6 +145,24 @@ const EpisodeExplorer: React.FC<{
         setPreviewSeason(s);
         onSeasonSelect(s);
         setActivePanel('episodes');
+    };
+
+    // Auto-scroll to current episode when opening
+    useEffect(() => {
+        if (activePanel === 'episodes' && currentEpisodeRef.current && episodesContainerRef.current) {
+            setTimeout(() => {
+                currentEpisodeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+    }, [activePanel, currentEpisode]);
+
+    // Helper to get episode progress as percentage
+    const getEpisodeProgressPercent = (season: number, epNumber: number): number => {
+        const progress = getEpisodeProgress(showId, season, epNumber);
+        if (progress && progress.duration > 0) {
+            return Math.min((progress.time / progress.duration) * 100, 100);
+        }
+        return 0;
     };
 
     return (
@@ -173,7 +204,7 @@ const EpisodeExplorer: React.FC<{
                         <span className="text-white text-xl font-['Consolas'] font-bold">{t('player.season')} {previewSeason}</span>
                     </div>
 
-                    <div className="flex flex-col py-2 max-h-[60vh] overflow-y-auto scrollbar-none">
+                    <div ref={episodesContainerRef} className="flex flex-col py-2 max-h-[60vh] overflow-y-auto scrollbar-none">
                         {currentSeasonEpisodes.map(ep => {
                             const isPlaying = currentEpisode === ep.episode_number && playingSeason === selectedSeason;
                             const isExpanded = expandedEpisodeId === ep.id;
@@ -181,12 +212,19 @@ const EpisodeExplorer: React.FC<{
                             return (
                                 <div
                                     key={ep.id}
-                                    className={`px-4 transition ${isExpanded ? 'bg-[#0f1112] pb-6 pt-4' : 'py-4 hover:bg-white/5'}`}
+                                    ref={isPlaying ? currentEpisodeRef : null}
+                                    className={`px-4 transition ${isExpanded ? 'bg-[#0f1112] pb-6 pt-4' : 'py-4 hover:bg-white/5'} ${isPlaying ? 'border-l-4 border-[#E50914]' : ''}`}
                                 >
                                     {/* Header / Click Area - EXPAND ONLY */}
                                     <div
                                         className="flex items-center cursor-pointer group"
-                                        onClick={() => setExpandedEpisodeId(isExpanded ? null : ep.id)}
+                                        onClick={() => {
+                                            const newExpanded = isExpanded ? null : ep.id;
+                                            setExpandedEpisodeId(newExpanded);
+                                            if (newExpanded && onEpisodeExpand) {
+                                                onEpisodeExpand(selectedSeason, ep.episode_number);
+                                            }
+                                        }}
                                     >
                                         <span className={`w-8 text-lg font-['Consolas'] font-normal ${isPlaying ? 'text-white font-bold' : 'text-white/70'}`}>
                                             {ep.episode_number}
@@ -194,6 +232,18 @@ const EpisodeExplorer: React.FC<{
                                         <span className={`flex-1 text-lg font-['Consolas'] ${isPlaying ? 'text-white font-bold' : 'text-white font-bold'}`}>
                                             {ep.name}
                                         </span>
+                                        {/* Resume time indicator */}
+                                        {(() => {
+                                            const progress = getEpisodeProgress(showId, selectedSeason, ep.episode_number);
+                                            if (progress && progress.time > 10 && progress.time < (progress.duration - 30)) {
+                                                return (
+                                                    <span className="text-xs text-white/50 mr-3">
+                                                        Resume {formatTime(progress.time)}
+                                                    </span>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                         <CaretDownIcon
                                             size={20}
                                             className={`text-white/50 transition-transform duration-300 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
@@ -220,7 +270,15 @@ const EpisodeExplorer: React.FC<{
                                                         <PlayCircleIcon size={48} weight="fill" className="text-white drop-shadow-lg transform group-hover:scale-110 transition-transform" />
                                                     </div>
 
-                                                    {/* Progress Bar (Optional, can be added if we have per-episode progress) */}
+                                                    {/* Progress Bar at bottom of thumbnail */}
+                                                    {getEpisodeProgressPercent(selectedSeason, ep.episode_number) > 0 && (
+                                                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                                                            <div
+                                                                className="h-full bg-[#E50914]"
+                                                                style={{ width: `${getEpisodeProgressPercent(selectedSeason, ep.episode_number)}%` }}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -228,9 +286,6 @@ const EpisodeExplorer: React.FC<{
                                                 <p className="text-base text-gray-300 line-clamp-4 leading-relaxed overflow-hidden text-ellipsis mb-2">
                                                     {ep.overview || t('player.noDescription')}
                                                 </p>
-                                                <div className="mt-auto">
-                                                    <span className="text-xs text-white/40 uppercase tracking-widest">{t('player.airDate')}: {ep.air_date}</span>
-                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -252,9 +307,11 @@ interface VideoPlayerSettingsProps {
     selectedSeason: number;
     currentEpisode: number;
     playingSeason?: number;
+    showId: number | string;
     onSeasonSelect: (season: number) => void;
     onEpisodeSelect: (ep: Episode) => void;
-    qualities: Array<{ height: number; level: number }>;
+    onEpisodeExpand?: (season: number, episode: number) => void;
+    qualities: Array<{ height: number; bitrate: number; level: number }>;
     currentQuality: number;
     onQualityChange: (level: number) => void;
     captions: Array<{ id: string; label: string; url: string; lang: string }>;
@@ -273,8 +330,10 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
     selectedSeason,
     currentEpisode,
     playingSeason,
+    showId,
     onSeasonSelect,
     onEpisodeSelect,
+    onEpisodeExpand,
     qualities,
     currentQuality,
     onQualityChange,
@@ -340,8 +399,10 @@ const VideoPlayerSettings: React.FC<VideoPlayerSettingsProps> = ({
                     selectedSeason={selectedSeason}
                     currentEpisode={currentEpisode}
                     playingSeason={playingSeason}
+                    showId={showId}
                     onSeasonSelect={onSeasonSelect}
                     onEpisodeSelect={(ep) => { onEpisodeSelect(ep); setActivePanel('none'); }}
+                    onEpisodeExpand={onEpisodeExpand}
                     activePanel={activePanel}
                     setActivePanel={setActivePanel}
                     showTitle={showTitle}

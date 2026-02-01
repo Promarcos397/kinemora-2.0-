@@ -119,7 +119,7 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <h2 className="px-6 md:px-14 lg:px-20 text-sm sm:text-base md:text-lg font-bold text-[#e5e5e5] hover:text-white transition cursor-pointer flex items-center group/title w-fit">
+      <h2 className="px-6 md:px-14 lg:px-20 text-lg sm:text-xl md:text-2xl font-bold text-[#e5e5e5] hover:text-white transition cursor-pointer flex items-center group/title w-fit tracking-wide">
         {title}
         <span className="text-xs text-cyan-500 ml-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-300 flex items-center font-semibold">
           {t('rows.exploreAll')} <CaretRightIcon size={14} className="ml-1" />

@@ -18,6 +18,7 @@ const HomePage: React.FC<PageProps> = ({ onSelectMovie, onPlay, seekTime }) => {
   const { t } = useTranslation();
   const [recommendationMovie, setRecommendationMovie] = useState<Movie | null>(null);
   const [recommendations, setRecommendations] = useState<Movie[]>([]);
+  const [cloudHero, setCloudHero] = useState<Movie | undefined>(undefined);
 
   // Pick a random movie from 'My List' and fetch recommendations for it
   useEffect(() => {
@@ -36,8 +37,14 @@ const HomePage: React.FC<PageProps> = ({ onSelectMovie, onPlay, seekTime }) => {
 
   return (
     <>
-      {/* Using fetchPopular for popular movies, daily selection is in HeroCarousel */}
-      <HeroCarousel key="home" onSelect={onSelectMovie} onPlay={onPlay} fetchUrl={REQUESTS.fetchPopular} seekTime={seekTime} />
+      {/* Cloud Hero takes precedence if available */}
+      <HeroCarousel
+        key="home"
+        onSelect={onSelectMovie}
+        onPlay={onPlay}
+        fetchUrl={REQUESTS.fetchPopular}
+        seekTime={seekTime}
+      />
       {/* Main Content */}
       <main className="relative z-10 pb-12 -mt-12 sm:-mt-20 md:-mt-32 space-y-6 md:space-y-10">
 

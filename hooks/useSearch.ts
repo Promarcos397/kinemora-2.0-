@@ -11,13 +11,17 @@ interface CacheEntry {
   data: Movie[];
 }
 
+export type SearchMode = 'multi' | 'comic';
+
 export const useSearch = () => {
   const [query, setQuery] = useState('');
+  const [mode, setMode] = useState<SearchMode>('multi');
   const [results, setResults] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Simple in-memory cache
+  // Key: "query-mode"
   const cache = useRef<Map<string, CacheEntry>>(new Map());
 
   useEffect(() => {
@@ -30,7 +34,7 @@ export const useSearch = () => {
       return;
     }
 
-    // 2. Minimum length check to avoid spamming API
+    // 2. Minimum length check
     if (trimmedQuery.length < 2) {
       return;
     }
@@ -39,7 +43,8 @@ export const useSearch = () => {
     setError(null);
 
     // 3. Check Cache
-    const cached = cache.current.get(trimmedQuery.toLowerCase());
+    const cacheKey = `${trimmedQuery.toLowerCase()}-${mode}`;
+    const cached = cache.current.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
       setResults(cached.data);
       setIsLoading(false);
@@ -49,58 +54,75 @@ export const useSearch = () => {
     // 4. Debounce & Fetch
     const timeoutId = setTimeout(async () => {
       try {
-        const rawResults = await searchMovies(trimmedQuery);
-
-        // --- Smart Search Algorithm ---
-        // 1. Unpack "Person" results into their "known_for" movies
-        // 2. Filter out items without images
-        // 3. Filter by vote count (removes obscure content)
-        // 4. Filter out documentaries
-        // 5. Remove duplicates
         const processedResults: Movie[] = [];
-        const seenIds = new Set<number>();
+        const seenIds = new Set<number | string>();
 
-        // Helper: Check if item passes quality filters
-        const passesQualityFilters = (item: Movie): boolean => {
-          // Must have image
-          if (!item.backdrop_path && !item.poster_path) return false;
+        if (mode === 'comic') {
+          // --- COMIC SEARCH (Supabase Cloud Series) ---
+          const electron = (window as any).electron;
+          if (electron?.cloud?.getSeries) {
+            const res = await electron.cloud.getSeries();
+            if (res.success && res.data) {
+              // Filter series by title match
+              const searchLower = trimmedQuery.toLowerCase();
+              const filtered = res.data.filter((series: any) =>
+                series.title?.toLowerCase().includes(searchLower)
+              );
 
-          // Vote count floor (filter obscure content)
-          if (item.vote_count !== undefined && item.vote_count < MIN_VOTE_COUNT) return false;
-
-          // Genre blacklist (filter documentaries unless explicitly searched)
-          if (item.genre_ids && item.genre_ids.some(id => BLACKLISTED_GENRES.includes(id))) {
-            // Exception: if query contains "documentary", allow them
-            if (!trimmedQuery.toLowerCase().includes('documentary')) return false;
-          }
-
-          return true;
-        };
-
-        rawResults.forEach((item) => {
-          // A) Handle 'Person' results: Expand them into their known movies/shows
-          if (item.media_type === 'person' && item.known_for) {
-            item.known_for.forEach((work) => {
-              if (!seenIds.has(work.id) && passesQualityFilters(work)) {
-                seenIds.add(work.id);
-                processedResults.push(work);
-              }
-            });
-          }
-          // B) Handle direct Movie/TV results
-          else if (item.media_type !== 'person') {
-            if (!seenIds.has(item.id) && passesQualityFilters(item)) {
-              seenIds.add(item.id);
-              processedResults.push(item);
+              filtered.forEach((series: any) => {
+                if (!seenIds.has(series.id)) {
+                  seenIds.add(series.id);
+                  processedResults.push({
+                    id: series.id,
+                    title: series.title,
+                    name: series.title,
+                    overview: series.description || '',
+                    poster_path: series.cover_google_id ? `comic://image?id=${series.cover_google_id}` : null,
+                    backdrop_path: series.cover_google_id ? `comic://image?id=${series.cover_google_id}` : null,
+                    media_type: 'series',
+                    vote_average: 9.0,
+                    popularity: series.issue_count || 1
+                  } as Movie);
+                }
+              });
             }
           }
-        });
+        } else {
+          // --- TMDB SEARCH ---
+          const rawResults = await searchMovies(trimmedQuery);
 
-        // Sort by popularity (most popular first)
-        processedResults.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+          // Helper: Check if item passes quality filters
+          const passesQualityFilters = (item: Movie): boolean => {
+            if (!item.backdrop_path && !item.poster_path) return false;
+            if (item.vote_count !== undefined && item.vote_count < MIN_VOTE_COUNT) return false;
+            if (item.genre_ids && item.genre_ids.some(id => BLACKLISTED_GENRES.includes(id))) {
+              if (!trimmedQuery.toLowerCase().includes('documentary')) return false;
+            }
+            return true;
+          };
+
+          rawResults.forEach((item) => {
+            if (item.media_type === 'person' && item.known_for) {
+              item.known_for.forEach((work) => {
+                if (!seenIds.has(work.id) && passesQualityFilters(work)) {
+                  seenIds.add(work.id);
+                  processedResults.push(work);
+                }
+              });
+            } else if (item.media_type !== 'person') {
+              if (!seenIds.has(item.id) && passesQualityFilters(item)) {
+                seenIds.add(item.id);
+                processedResults.push(item);
+              }
+            }
+          });
+
+          // Sort by popularity
+          processedResults.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+        }
 
         // 5. Update Cache
-        cache.current.set(trimmedQuery.toLowerCase(), {
+        cache.current.set(cacheKey, {
           timestamp: Date.now(),
           data: processedResults
         });
@@ -113,14 +135,14 @@ export const useSearch = () => {
       } finally {
         setIsLoading(false);
       }
-    }, 400); // 400ms debounce
+    }, 400);
 
     return () => clearTimeout(timeoutId);
-  }, [query]);
+  }, [query, mode]);
 
   const clearSearch = () => setQuery('');
 
-  return { query, setQuery, results, isLoading, error, clearSearch };
+  return { query, setQuery, mode, setMode, results, isLoading, error, clearSearch };
 };
 
 export default useSearch;

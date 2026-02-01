@@ -21,6 +21,7 @@ export default {
                 sans: ['Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
                 bebas: ['"Bebas Neue"', 'sans-serif'],
                 alfa: ['"Alfa Slab One"', 'cursive'],
+                leaner: ['"Leaner Bold"', 'sans-serif'],
             },
             keyframes: {
                 fadeIn: { '0%': { opacity: 0 }, '100%': { opacity: 1 } },

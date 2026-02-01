@@ -27,7 +27,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export const getMovieVideos = async (id: number, type: 'movie' | 'tv') => {
+export const getMovieVideos = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get<VideoResponse>(`/${type}/${id}/videos`);
     return response.data.results;
@@ -37,7 +37,7 @@ export const getMovieVideos = async (id: number, type: 'movie' | 'tv') => {
   }
 };
 
-export const getMovieImages = async (id: number, type: 'movie' | 'tv') => {
+export const getMovieImages = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get(`/${type}/${id}/images`, {
       params: { include_image_language: 'en,null' }
@@ -49,7 +49,7 @@ export const getMovieImages = async (id: number, type: 'movie' | 'tv') => {
   }
 };
 
-export const getMovieCredits = async (id: number, type: 'movie' | 'tv') => {
+export const getMovieCredits = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get(`/${type}/${id}/credits`);
     return response.data.cast || [];
@@ -59,7 +59,7 @@ export const getMovieCredits = async (id: number, type: 'movie' | 'tv') => {
   }
 };
 
-export const getMovieDetails = async (id: number, type: 'movie' | 'tv') => {
+export const getMovieDetails = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get(`/${type}/${id}`);
     return response.data;
@@ -69,17 +69,17 @@ export const getMovieDetails = async (id: number, type: 'movie' | 'tv') => {
   }
 };
 
-export const getSeasonDetails = async (id: number, seasonNumber: number) => {
+export const getSeasonDetails = async (id: number | string, seasonNumber: number) => {
   try {
     const response = await api.get(`/tv/${id}/season/${seasonNumber}`);
-    return response.data.episodes || [];
+    return response.data;  // Return full object with .episodes property
   } catch (error) {
     console.error(`Error fetching season ${seasonNumber} for tv ${id}:`, error);
-    return [];
+    return null;
   }
 };
 
-export const getExternalIds = async (id: number, type: 'movie' | 'tv') => {
+export const getExternalIds = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get(`/${type}/${id}/external_ids`);
     return response.data;
@@ -89,7 +89,7 @@ export const getExternalIds = async (id: number, type: 'movie' | 'tv') => {
   }
 };
 
-export const getRecommendations = async (id: number, type: 'movie' | 'tv') => {
+export const getRecommendations = async (id: number | string, type: 'movie' | 'tv') => {
   try {
     const response = await api.get<TMDBResponse>(`/${type}/${id}/recommendations`);
     return response.data.results;
@@ -136,7 +136,7 @@ export const fetchData = async (url: string) => {
  * 
  * Returns an array of YouTube keys.
  */
-export const fetchTrailers = async (id: number, type: 'movie' | 'tv'): Promise<string[]> => {
+export const fetchTrailers = async (id: number | string, type: 'movie' | 'tv'): Promise<string[]> => {
   try {
     const videos = await getMovieVideos(id, type);
 
@@ -170,9 +170,27 @@ export const fetchTrailers = async (id: number, type: 'movie' | 'tv'): Promise<s
 };
 
 // Deprecated: Wraps fetchTrailers for backward compatibility (returns first result)
-export const fetchTrailer = async (id: number, type: 'movie' | 'tv'): Promise<string | null> => {
+export const fetchTrailer = async (id: number | string, type: 'movie' | 'tv'): Promise<string | null> => {
   const trailers = await fetchTrailers(id, type);
   return trailers.length > 0 ? trailers[0] : null;
+};
+
+// Prefetch stream (fire and forget)
+export const prefetchStream = (title: string, year: number, tmdbId: string, type: 'movie' | 'tv', season: number = 1, episode: number = 1) => {
+  if (!window.electron) return;
+
+  // Slight delay to prioritize UI rendering
+  setTimeout(() => {
+    try {
+      if (type === 'movie') {
+        window.electron.getMovieStream(title, year, tmdbId);
+      } else {
+        window.electron.getTvStream(title, season, episode, year, tmdbId);
+      }
+    } catch (e) {
+      // Ignore prefetch errors
+    }
+  }, 500);
 };
 
 export default api;

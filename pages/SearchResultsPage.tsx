@@ -3,20 +3,42 @@ import { useTranslation } from 'react-i18next';
 import { Movie } from '../types';
 import MovieCard from '../components/MovieCard';
 
+import { SearchMode } from '../hooks/useSearch';
+
 interface SearchResultsPageProps {
   query: string;
   results: Movie[];
   onSelectMovie: (movie: Movie) => void;
   onPlay?: (movie: Movie) => void;
   isLoading: boolean;
+  mode: SearchMode;
+  setMode: (mode: SearchMode) => void;
 }
 
-const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ query, results, onSelectMovie, onPlay, isLoading }) => {
+const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ query, results, onSelectMovie, onPlay, isLoading, mode, setMode }) => {
   const { t } = useTranslation();
   return (
     <div className="pt-28 px-6 md:px-14 lg:px-20 pb-12 min-h-screen">
-      <div className="text-gray-500 text-sm mb-4">
-        {t('search.explore')} <span className="text-white">"{query}"</span>
+      <div className="flex items-center justify-between mb-8">
+        <div className="text-gray-500 text-sm">
+          {t('search.explore')} <span className="text-white">"{query}"</span>
+        </div>
+
+        {/* Mode Toggle */}
+        <div className="flex bg-[#222] rounded p-1">
+          <button
+            onClick={() => setMode('multi')}
+            className={`px-4 py-1.5 text-sm font-medium rounded transition ${mode === 'multi' ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}`}
+          >
+            Movies & TV
+          </button>
+          <button
+            onClick={() => setMode('comic')}
+            className={`px-4 py-1.5 text-sm font-medium rounded transition ${mode === 'comic' ? 'bg-[#46d369] text-black' : 'text-gray-400 hover:text-white'}`}
+          >
+            Comics
+          </button>
+        </div>
       </div>
 
       {isLoading ? (

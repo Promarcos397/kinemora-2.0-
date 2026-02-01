@@ -55,6 +55,7 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
     { id: 'home', label: t('nav.home') },
     { id: 'tv', label: t('nav.shows') },
     { id: 'movies', label: t('nav.movies') },
+    { id: 'reads', label: t('reads.title') },
     { id: 'new', label: t('nav.newPopular') },
     { id: 'list', label: t('nav.myList') },
   ];

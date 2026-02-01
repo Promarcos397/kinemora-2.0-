@@ -6,30 +6,39 @@ import { fetchData } from '../services/api';
 
 interface TopTenRowProps {
   title: string;
-  fetchUrl: string;
+  fetchUrl?: string;
+  data?: Movie[];
   onSelect: (movie: Movie) => void;
 }
 
-const TopTenRow: React.FC<TopTenRowProps> = ({ title, fetchUrl, onSelect }) => {
+const TopTenRow: React.FC<TopTenRowProps> = ({ title, fetchUrl, data, onSelect }) => {
   const { t } = useTranslation();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(true);
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const results = await fetchData(fetchUrl);
-        setMovies(results.slice(0, 10)); // Take top 10
-      } catch (e) {
-        console.error("Top 10 fetch failed", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, [fetchUrl]);
+    if (data) {
+      setMovies(data.slice(0, 10));
+      setLoading(false);
+      return;
+    }
+
+    if (fetchUrl) {
+      const loadData = async () => {
+        setLoading(true);
+        try {
+          const results = await fetchData(fetchUrl);
+          setMovies(results.slice(0, 10)); // Take top 10
+        } catch (e) {
+          console.error("Top 10 fetch failed", e);
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadData();
+    }
+  }, [fetchUrl, data]);
 
   const scroll = (direction: 'left' | 'right') => {
     if (rowRef.current) {
@@ -126,7 +135,9 @@ const TopTenRow: React.FC<TopTenRowProps> = ({ title, fetchUrl, onSelect }) => {
 
                 {/* The Poster - Pushed to the right */}
                 <img
-                  src={`https://image.tmdb.org/t/p/w500${movie.poster_path}`}
+                  src={movie.poster_path?.startsWith('http') || movie.poster_path?.startsWith('comic://')
+                    ? movie.poster_path
+                    : `https://image.tmdb.org/t/p/w500${movie.poster_path}`}
                   className="h-full w-auto object-cover rounded-sm z-10 shadow-lg ml-auto"
                   alt={movie.title || movie.name}
                   loading="lazy"

@@ -207,5 +207,28 @@
         "newEpisodes": "NEW EPISODES",
         "recentlyAdded": "RECENTLY ADDED",
         "topRated": "TOP RATED"
+    },
+    "reads": {
+        "title": "Reads",
+        "manga": "Manga",
+        "comics": "Comics",
+        "chapter": "Chapter",
+        "chapters": "Chapters",
+        "read": "Read",
+        "continue": "Continue Reading",
+        "noChapters": "No chapters available",
+        "nextUp": "Next Up",
+        "nextChapter": "Next Chapter",
+        "prevChapter": "Previous Chapter",
+        "settings": {
+            "readingMode": "Reading Mode",
+            "vertical": "Vertical (Webtoon)",
+            "horizontal": "Horizontal (Classic)",
+            "direction": "Direction",
+            "ltr": "Left to Right",
+            "rtl": "Right to Left",
+            "fitWidth": "Fit Width",
+            "fitHeight": "Fit Height"
+        }
     }
 }
