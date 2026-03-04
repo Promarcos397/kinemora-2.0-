@@ -156,7 +156,7 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
 
           {initialLoad
             ? Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="movie-card-container relative flex-none w-[calc((100vw-3rem)/2.3)] sm:w-[calc((100vw-3rem)/3.3)] md:w-[calc((100vw-3.5rem)/4.3)] lg:w-[calc((100vw-4rem)/6.3)] aspect-video bg-[#222] rounded-sm overflow-hidden border border-white/5 pointer-events-auto mr-1.5 md:mr-2 lg:mr-2.5">
+              <div key={i} className="movie-card-container relative flex-none w-[calc((100vw-3rem)/2.3)] sm:w-[calc((100vw-3rem)/3.3)] md:w-[calc((100vw-3.5rem)/4.3)] lg:w-[calc((100vw-4rem)/6.3)] aspect-[7/5] bg-[#222] rounded-sm overflow-hidden border border-white/5 pointer-events-auto mr-1.5 md:mr-2 lg:mr-2.5">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
                 <div className="absolute bottom-3 left-3 right-3 space-y-2 opacity-50">
                   <div className="h-2 bg-gray-600 rounded w-3/4"></div>

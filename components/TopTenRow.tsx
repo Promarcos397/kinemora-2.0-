@@ -109,38 +109,40 @@ const TopTenRow: React.FC<TopTenRowProps> = ({ title, fetchUrl, data, onSelect }
                 pointer-events-auto"
                 onClick={() => onSelect(movie)}
               >
-                {/* The Number - Now properly positioned inside the wider container */}
-                <div className="absolute left-0 bottom-0 h-full w-[45%] md:w-[50%] flex items-end justify-end z-0 pointer-events-none pb-0">
+                {/* The Number - Now properly positioned to heavily underlap */}
+                <div className="absolute left-[-5%] bottom-0 h-full w-[60%] flex items-end justify-start z-0 pointer-events-none pb-0">
                   <svg
                     viewBox="0 0 100 170"
-                    className="h-full w-full drop-shadow-lg"
+                    className="h-[120%] w-auto drop-shadow-[4px_0_10px_rgba(0,0,0,0.8)] -ml-2 mb-[-5px]"
                     preserveAspectRatio="xMidYMax meet"
                   >
                     <text
-                      x="70"
-                      y="150"
+                      x="40"
+                      y="160"
                       textAnchor="middle"
-                      fill="#030303"
-                      stroke="#595959"
-                      strokeWidth="0.4"
-                      fontSize="150"
-                      fontWeight="700"
-                      fontFamily="'Alfa Slab One', cursive"
-                      letterSpacing={index === 9 ? "-10" : "0"}
+                      fill="#000000"
+                      stroke="#808080"
+                      strokeWidth="3.5"
+                      strokeLinejoin="round"
+                      fontSize="170"
+                      fontWeight="900"
+                      fontFamily="Arial, sans-serif"
+                      letterSpacing={index === 9 ? "-15" : "-5"}
                     >
                       {index + 1}
                     </text>
                   </svg>
                 </div>
 
-                {/* The Poster - Pushed to the right */}
+                {/* The Poster - Pushed to the right and over the number */}
                 <img
                   src={movie.poster_path?.startsWith('http') || movie.poster_path?.startsWith('comic://')
                     ? movie.poster_path
                     : `https://image.tmdb.org/t/p/w500${movie.poster_path}`}
-                  className="h-full w-auto object-cover rounded-sm z-10 shadow-lg ml-auto"
+                  className="absolute right-0 bottom-0 h-full w-[60%] md:w-[55%] object-cover object-top rounded-sm shadow-[0_0_15px_rgba(0,0,0,0.5)] z-10"
                   alt={movie.title || movie.name}
                   loading="lazy"
+                  draggable={false}
                 />
               </div>
             ))}

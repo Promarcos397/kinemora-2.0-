@@ -4,6 +4,7 @@ import { REQUESTS } from '../constants';
 import { Movie } from '../types';
 import HeroCarousel from '../components/HeroCarousel';
 import Row from '../components/Row';
+import CharacterRow from '../components/CharacterRow';
 import CategorySubNav, { Genre } from '../components/CategorySubNav';
 import { useGlobalContext } from '../context/GlobalContext';
 
@@ -58,6 +59,7 @@ const ShowsPage: React.FC<PageProps> = ({ onSelectMovie, onPlay }) => {
                 {isKidsMode ? (
                     <>
                         <Row title="Start Watching" fetchUrl={REQUESTS.fetchKidsHero} onSelect={onSelectMovie} />
+                        <CharacterRow onSelectMovie={onSelectMovie} />
                         <Row title="Fairies, Fiends, Film Time!" fetchUrl={REQUESTS.fetchKidsTVPlayful} onSelect={onSelectMovie} />
                         <Row title="Calm and Gentle" fetchUrl={REQUESTS.fetchKidsTVFamily} onSelect={onSelectMovie} />
                         <Row title="Trending Now" fetchUrl={REQUESTS.fetchKidsTVTrending} onSelect={onSelectMovie} />

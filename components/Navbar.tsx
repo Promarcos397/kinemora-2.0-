@@ -91,7 +91,7 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
               <button
                 onClick={() => {
                   setIsKidsMode(false);
-                  handleTabClick('home');
+                  window.location.href = '/';
                 }}
                 className="hidden md:block h-8 px-5 bg-[#e50914] text-white text-[13px] font-bold rounded shadow-sm hover:bg-[#f40612] transition-colors"
               >
@@ -105,7 +105,7 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
                 className="hidden md:inline text-[13px] text-[#e5e5e5] hover:text-[#b3b3b3] cursor-pointer transition-colors font-normal"
                 onClick={() => {
                   setIsKidsMode(true);
-                  handleTabClick('home');
+                  window.location.href = '/';
                 }}
               >
                 Kids
@@ -157,7 +157,7 @@ const Navbar: React.FC<NavbarProps> = ({ isScrolled, searchQuery, setSearchQuery
                         <span className="text-[13px] text-white group-hover/profile:underline">User</span>
                       </div>
                       {/* Profile 2 - Placeholder */}
-                      <div className="flex items-center gap-3 group/profile cursor-pointer" onClick={() => setIsKidsMode(true)}>
+                      <div className="flex items-center gap-3 group/profile cursor-pointer" onClick={() => { setIsKidsMode(true); window.location.href = '/'; }}>
                         <div className="w-8 h-8 rounded-[4px] overflow-hidden flex-shrink-0 bg-[#0080ff] flex items-center justify-center text-white font-bold text-[10px] leading-none">
                           Kids
                         </div>

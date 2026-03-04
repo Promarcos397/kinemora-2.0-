@@ -117,10 +117,10 @@ const NewPopularPage: React.FC<PageProps> = ({ onSelectMovie }) => {
 
         {isKidsMode ? (
           <>
-            <Row title="Coming This Week" fetchUrl={REQUESTS.fetchKidsHero} onSelect={onSelectMovie} />
+            <Row title="New on Netflix" fetchUrl={REQUESTS.fetchKidsHero} onSelect={onSelectMovie} />
             <TopTenRow title="Top 10 Kids Films Today" fetchUrl={REQUESTS.fetchKidsMoviesFamily} onSelect={onSelectMovie} />
             <TopTenRow title="Top 10 Kids Series Today" fetchUrl={REQUESTS.fetchKidsTVTrending} onSelect={onSelectMovie} />
-            <Row title="Ocean Adventures" fetchUrl={REQUESTS.fetchKidsMoviesAnimation} onSelect={onSelectMovie} />
+            <Row title="Coming this week" fetchUrl={REQUESTS.fetchKidsMoviesAnimation} onSelect={onSelectMovie} />
           </>
         ) : (
           <>

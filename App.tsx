@@ -21,8 +21,10 @@ import MyListPage from './pages/MyListPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import SettingsPage from './pages/SettingsPage';
 import CharactersPage from './pages/CharactersPage';
+import ProfileSelection from './pages/ProfileSelection';
 
 const App: React.FC = () => {
+  const [profileGatePassed, setProfileGatePassed] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const { query, setQuery, results, isLoading, mode, setMode } = useSearch();
   const navigate = useNavigate();
@@ -192,6 +194,15 @@ const App: React.FC = () => {
           <Route path="/watch/:type/:id" element={<WatchPage />} />
         </Routes>
       </>
+    );
+  }
+
+  if (!profileGatePassed) {
+    return (
+      <div className="h-screen bg-[#141414]">
+        <TitleBar isOverlay={true} />
+        <ProfileSelection onSelected={() => setProfileGatePassed(true)} />
+      </div>
     );
   }
 
