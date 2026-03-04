@@ -5,12 +5,15 @@ import { Movie } from '../types';
 import Row from '../components/Row';
 import TopTenRow from '../components/TopTenRow';
 
+import { useGlobalContext } from '../context/GlobalContext';
+
 interface PageProps {
   onSelectMovie: (movie: Movie) => void;
 }
 
 const NewPopularPage: React.FC<PageProps> = ({ onSelectMovie }) => {
   const { t } = useTranslation();
+  const { isKidsMode } = useGlobalContext();
 
   // Comic Top 10 Logic
   const [topComics, setTopComics] = React.useState<Movie[]>([]);
@@ -112,30 +115,29 @@ const NewPopularPage: React.FC<PageProps> = ({ onSelectMovie }) => {
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-white drop-shadow-md">{t('nav.newPopular')}</h1>
         </div>
 
-        {/* New on Netflix - Standard landscape row */}
-        <Row title={t('rows.newOnNetflix')} fetchUrl={REQUESTS.fetchNetflixOriginals} onSelect={onSelectMovie} />
-
-        {/* Top 10 TV Shows - Special Row */}
-        <TopTenRow title={t('rows.top10TV')} fetchUrl={REQUESTS.fetchTrendingTV} onSelect={onSelectMovie} />
-
-        {/* Top 10 Comics Today - Custom Logic */}
-        {topComics.length > 0 && (
-          <TopTenRow
-            title="Top 10 Comics Today"
-            data={topComics}
-            onSelect={onSelectMovie}
-          />
+        {isKidsMode ? (
+          <>
+            <Row title="Coming This Week" fetchUrl={REQUESTS.fetchKidsHero} onSelect={onSelectMovie} />
+            <TopTenRow title="Top 10 Kids Films Today" fetchUrl={REQUESTS.fetchKidsMoviesFamily} onSelect={onSelectMovie} />
+            <TopTenRow title="Top 10 Kids Series Today" fetchUrl={REQUESTS.fetchKidsTVTrending} onSelect={onSelectMovie} />
+            <Row title="Ocean Adventures" fetchUrl={REQUESTS.fetchKidsMoviesAnimation} onSelect={onSelectMovie} />
+          </>
+        ) : (
+          <>
+            <Row title={t('rows.newOnNetflix')} fetchUrl={REQUESTS.fetchNetflixOriginals} onSelect={onSelectMovie} />
+            <TopTenRow title={t('rows.top10TV')} fetchUrl={REQUESTS.fetchTrendingTV} onSelect={onSelectMovie} />
+            {topComics.length > 0 && (
+              <TopTenRow
+                title="Top 10 Comics Today"
+                data={topComics}
+                onSelect={onSelectMovie}
+              />
+            )}
+            <TopTenRow title={t('rows.top10Movies')} fetchUrl={REQUESTS.fetchTrendingMovies} onSelect={onSelectMovie} />
+            <Row title={t('rows.worthWait')} fetchUrl={REQUESTS.fetchUpcoming} onSelect={onSelectMovie} />
+            <Row title={t('rows.comingSoon')} fetchUrl={REQUESTS.fetchActionMovies} onSelect={onSelectMovie} />
+          </>
         )}
-
-        {/* Top 10 Movies - Special Row */}
-        <TopTenRow title={t('rows.top10Movies')} fetchUrl={REQUESTS.fetchTrendingMovies} onSelect={onSelectMovie} />
-
-        {/* Worth the Wait - Standard landscape row */}
-        <Row title={t('rows.worthWait')} fetchUrl={REQUESTS.fetchUpcoming} onSelect={onSelectMovie} />
-
-        {/* Coming Soon - Extra row for fullness */}
-        <Row title={t('rows.comingSoon')} fetchUrl={REQUESTS.fetchActionMovies} onSelect={onSelectMovie} />
-
       </main>
     </div>
   );

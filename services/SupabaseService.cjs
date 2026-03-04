@@ -1,15 +1,39 @@
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+const { app } = require('electron');
 
-// Initialize Client
+// Correct dev/prod detection for Electron
+// app.isPackaged is FALSE in dev mode, TRUE in production builds
+const isDev = !app.isPackaged;
+const envPath = isDev
+    ? path.join(__dirname, '../.env')
+    : path.join(process.resourcesPath, '.env');
+
+console.log('[Supabase] isDev:', isDev, 'Looking for .env at:', envPath);
+
+if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+} else {
+    console.error('[Supabase] .env file not found at:', envPath);
+}
+
+// Initialize Client (Lazy or guarded)
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error('Supabase credentials missing in .env');
-}
+let supabase;
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+if (supabaseUrl && supabaseKey) {
+    try {
+        supabase = createClient(supabaseUrl, supabaseKey);
+        console.log('[Supabase] Client initialized');
+    } catch (e) {
+        console.error('[Supabase] Init failed:', e.message);
+    }
+} else {
+    console.error('[Supabase] Credentials missing in .env at:', envPath);
+}
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 Minutes
 const cache = {
@@ -19,6 +43,7 @@ const cache = {
 };
 
 async function getLibrary() {
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
         if (cache.library.data && (Date.now() - cache.library.timestamp < CACHE_TTL)) {
             console.log('[Supabase] Serving Library from Cache');
@@ -52,6 +77,7 @@ async function getLibrary() {
 }
 
 async function getSeries() {
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
         if (cache.series.data && (Date.now() - cache.series.timestamp < CACHE_TTL)) {
             return { success: true, data: cache.series.data };
@@ -73,6 +99,7 @@ async function getSeries() {
 }
 
 async function getIssues(seriesId) {
+    if (!supabase) return { success: false, error: 'Supabase not initialized' };
     try {
         const cached = cache.issues.get(seriesId);
         if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {

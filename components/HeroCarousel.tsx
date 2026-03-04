@@ -87,7 +87,7 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
           setMovie(selectedMovie);
 
           // Prefetch stream for hero movie (user likely to click play)
-          const api = (window as any).electron?.consumet;
+          const api = (window as any).electron?.pstream;
           if (api?.prefetchStream && selectedMovie) {
             const mediaType = selectedMovie.media_type || (selectedMovie.title ? 'movie' : 'tv');
             const releaseDate = selectedMovie.release_date || selectedMovie.first_air_date;
@@ -109,49 +109,53 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
   const fadeAudioIn = () => {
     try {
       const player = playerRef.current;
-      if (!player || isMuted || typeof player.getVolume !== 'function') return;
+      if (!player || isMuted) return;
 
       if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
 
-      let vol = player.getVolume();
-      if (vol > 100) vol = 100;
+      let vol = player.volume !== undefined ? player.volume : (player.getVolume?.() / 100 || 0);
+      if (vol > 1) vol = 1;
 
       fadeIntervalRef.current = setInterval(() => {
         try {
-          if (vol < 100) {
-            vol += 5;
-            player.setVolume(vol);
+          if (vol < 1) {
+            vol += 0.05;
+            if (vol > 1) vol = 1;
+            if (player.setVolume) player.setVolume(vol * 100);
+            else player.volume = vol;
           } else {
             clearInterval(fadeIntervalRef.current);
           }
         } catch (e) { clearInterval(fadeIntervalRef.current); }
-      }, 20);
+      }, 50);
     } catch (e) { }
   };
 
   const fadeAudioOut = (callback?: () => void) => {
     try {
       const player = playerRef.current;
-      if (!player || typeof player.getVolume !== 'function') {
+      if (!player) {
         if (callback) callback();
         return;
       }
 
       if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
 
-      let vol = player.getVolume();
+      let vol = player.volume !== undefined ? player.volume : (player.getVolume?.() / 100 || 1);
 
       fadeIntervalRef.current = setInterval(() => {
         try {
           if (vol > 0) {
-            vol -= 5;
-            player.setVolume(vol);
+            vol -= 0.05;
+            if (vol < 0) vol = 0;
+            if (player.setVolume) player.setVolume(vol * 100);
+            else player.volume = vol;
           } else {
             clearInterval(fadeIntervalRef.current);
             if (callback) callback();
           }
         } catch (e) { clearInterval(fadeIntervalRef.current); if (callback) callback(); }
-      }, 20);
+      }, 50);
     } catch (e) { if (callback) callback(); }
   };
 
@@ -254,17 +258,24 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
       if (shouldPlay) {
         // Play sequence
         try {
-          playerRef.current.playVideo();
+          if (playerRef.current.playVideo) playerRef.current.playVideo();
+          else playerRef.current.play();
           if (!isMuted) fadeAudioIn();
         } catch (e) { }
       } else {
         // Pause sequence with Fade
         if (!isMuted) {
           fadeAudioOut(() => {
-            try { playerRef.current.pauseVideo(); } catch (e) { }
+            try {
+              if (playerRef.current.pauseVideo) playerRef.current.pauseVideo();
+              else playerRef.current.pause();
+            } catch (e) { }
           });
         } else {
-          try { playerRef.current.pauseVideo(); } catch (e) { }
+          try {
+            if (playerRef.current.pauseVideo) playerRef.current.pauseVideo();
+            else playerRef.current.pause();
+          } catch (e) { }
         }
       }
     }
@@ -277,8 +288,11 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
   useEffect(() => {
     if (seekTime && seekTime > 0 && playerRef.current) {
       try {
-        playerRef.current.seekTo(seekTime, true);
-        playerRef.current.playVideo();
+        if (playerRef.current.seekTo) playerRef.current.seekTo(seekTime, true);
+        else playerRef.current.currentTime = seekTime;
+
+        if (playerRef.current.playVideo) playerRef.current.playVideo();
+        else playerRef.current.play();
       } catch (e) { }
     }
   }, [seekTime]);
@@ -349,7 +363,7 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
 
   if (loading) {
     return (
-      <div className="relative h-[55vh] sm:h-[70vh] md:h-[85vh] w-full bg-[#141414] overflow-hidden">
+      <div className="relative h-[50vh] sm:h-[60vh] md:h-[80vh] w-full bg-[#141414] overflow-hidden">
         <div className="absolute inset-0 bg-[#1f1f1f] animate-pulse" />
       </div>
     );
@@ -360,7 +374,7 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
   return (
     <div
       id="hero-container"
-      className="relative h-[55vh] sm:h-[70vh] md:h-[85vh] w-full overflow-hidden group bg-black"
+      className="relative h-[50vh] sm:h-[60vh] md:h-[80vh] w-full overflow-hidden group bg-black"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={(e) => {
         // Prevent pause if moving to App Bar (Top < 60px) or Scroll Bar (Right > width-20px)
@@ -407,43 +421,43 @@ const HeroCarousel: React.FC<HeroCarouselProps> = ({ onSelect, onPlay, fetchUrl,
           onSelect(m, time, videoId);
         }}
         trailerVideoId={trailerQueue[0]}
-        currentTime={playerRef.current?.getCurrentTime() || 0}
+        currentTime={playerRef.current?.getCurrentTime?.() || playerRef.current?.currentTime || 0}
         hasVideoEnded={hasVideoEnded}
       />
 
-      {/* Controls (Mute/Replay & Rating) - Bottom Right */}
-      <div className="absolute right-0 bottom-1/3 flex items-center space-x-4 z-30 pointer-events-auto pr-0">
+      {/* Controls (Mute/Replay & Rating) - Bottom Right, flush against edge */}
+      <div className="absolute right-0 bottom-[34%] flex items-center gap-3 z-30 pointer-events-auto">
 
-        {/* Mute Button - Shows when video is playing */}
+        {/* Mute Button - Thinner, more delicate stroke */}
         {showVideo && isVideoReady && !hasVideoEnded && (
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="w-8 h-8 md:w-10 md:h-10 border border-white rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 transition backdrop-blur-md group"
+            className="w-9 h-9 md:w-10 md:h-10 border-[1.5px] border-white/70 rounded-full flex items-center justify-center bg-transparent hover:bg-white/10 transition group"
           >
-            {isMuted ? <SpeakerSlashIcon size={20} className="text-white group-hover:scale-110 transition-transform" /> : <SpeakerHighIcon size={20} className="text-white group-hover:scale-110 transition-transform" />}
+            {isMuted ? <SpeakerSlashIcon size={16} weight="light" className="text-white group-hover:scale-110 transition-transform" /> : <SpeakerHighIcon size={16} weight="light" className="text-white group-hover:scale-110 transition-transform" />}
           </button>
         )}
 
-        {/* Replay Button - Shows when video has ended (same style as mute) */}
+        {/* Replay Button */}
         {hasVideoEnded && (
           <button
             onClick={() => {
-              setReplayCount(c => c + 1); // Force fresh YouTube mount
+              setReplayCount(c => c + 1);
               setHasVideoEnded(false);
               setShowVideo(true);
               setIsVideoReady(false);
             }}
-            className="w-8 h-8 md:w-10 md:h-10 border border-white rounded-full flex items-center justify-center bg-white/20 hover:bg-white/30 transition backdrop-blur-md group"
+            className="w-9 h-9 md:w-10 md:h-10 border-[1.5px] border-white/70 rounded-full flex items-center justify-center bg-transparent hover:bg-white/10 transition group"
             title="Replay Trailer"
           >
-            <ArrowCounterClockwise size={20} className="text-white group-hover:scale-110 transition-transform" />
+            <ArrowCounterClockwise size={16} weight="light" className="text-white group-hover:scale-110 transition-transform" />
           </button>
         )}
 
-        {/* PG Rating */}
-        <div className="bg-gray-500/30 border-l-2 border-white pl-2 pr-4 py-1 backdrop-blur-md">
-          <span className="text-white font-medium text-xs md:text-sm uppercase">
-            {movie.adult ? '18+' : '13+'}
+        {/* Age Rating Badge - Flush right edge, left-border only */}
+        <div className="bg-[#333]/50 border-l-[3px] border-white/90 pl-2.5 pr-5 py-1">
+          <span className="text-white/90 font-medium text-[11px] md:text-xs tracking-wide">
+            {movie.adult ? 'TV-MA' : 'TV-PG'}
           </span>
         </div>
       </div>

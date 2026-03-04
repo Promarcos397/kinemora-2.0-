@@ -1,4 +1,4 @@
-import { app, BrowserWindow, BrowserView, dialog, ipcMain, session, protocol, net } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, protocol, net } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
@@ -8,6 +8,38 @@ const __dirname = path.dirname(__filename);
 
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+
+// === SERVICES & UTILS (Global Scope) ===
+const StreamZip = require('node-stream-zip');
+const { Readable } = require('stream');
+let downloadFile, getFileStream, getLibrary, getSeries, getIssues;
+
+try {
+    const drivePath = require.resolve('../services/DriveService.cjs');
+    console.log('[Main] Loading DriveService from:', drivePath);
+    const drive = require('../services/DriveService.cjs');
+    console.log('[Main] DriveService exports:', Object.keys(drive));
+    downloadFile = drive.downloadFile;
+    getFileStream = drive.getFileStream;
+
+    const supabasePath = require.resolve('../services/SupabaseService.cjs');
+    console.log('[Main] Loading SupabaseService from:', supabasePath);
+    const supabase = require('../services/SupabaseService.cjs');
+    console.log('[Main] SupabaseService exports:', Object.keys(supabase));
+
+    getLibrary = supabase.getLibrary;
+    getSeries = supabase.getSeries;
+    getIssues = supabase.getIssues;
+
+    if (!getLibrary) console.error('[Main] CRITICAL: getLibrary is undefined!');
+
+    console.log('[Main] Services loaded successfully');
+} catch (e) {
+    console.error('[Main] Failed to load services:', e);
+    console.error('[Main] Stack:', e.stack);
+}
+
+const zipCache = new Map(); // Global cache for open CBZ archives
 
 // SCRAPING: Ignore SSL certificate errors (streaming sites often have misconfigured certs)
 app.commandLine.appendSwitch('ignore-certificate-errors');
@@ -81,236 +113,107 @@ async function createWindow() {
     ipcMain.on('window-close', () => win.close());
 
     // === VIDSRC BROWSERVIEW IMPLEMENTATION ===
-    let vidsrcView = null;
+    // NOTE: BrowserView was deprecated in Electron 30 and removed in Electron 39.
+    // These handlers are stubbed out. Streaming uses Consumet API instead.
 
-    // Create BrowserView for VidSrc streaming
-    ipcMain.handle('vidsrc-create', async (event, { url, bounds }) => {
-        console.log('[BrowserView] Creating for:', url);
-
-        // Destroy existing view if any
-        if (vidsrcView) {
-            win.removeBrowserView(vidsrcView);
-            vidsrcView.webContents.destroy();
-            vidsrcView = null;
-        }
-
-        vidsrcView = new BrowserView({
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                webSecurity: false,
-                allowRunningInsecureContent: true,
-            }
-        });
-
-        win.addBrowserView(vidsrcView);
-        vidsrcView.setBounds(bounds);
-        vidsrcView.setAutoResize({ width: true, height: true });
-
-        // Block popups in BrowserView
-        vidsrcView.webContents.setWindowOpenHandler(({ url }) => {
-            console.log('[BrowserView Popup Blocked]', url);
-            return { action: 'deny' };
-        });
-
-        // Inject headers for VidSrc domains
-        vidsrcView.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-            const { requestHeaders } = details;
-            requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-            try {
-                const reqUrl = new URL(details.url);
-                requestHeaders['Referer'] = reqUrl.origin + '/';
-                requestHeaders['Origin'] = reqUrl.origin;
-            } catch (e) { }
-            callback({ cancel: false, requestHeaders });
-        });
-
-        // Forward console messages for debugging
-        vidsrcView.webContents.on('console-message', (e, level, message) => {
-            console.log('[BrowserView Console]', message);
-        });
-
-        // When DOM is ready, inject script to find video in all frames
-        vidsrcView.webContents.on('did-finish-load', () => {
-            console.log('[BrowserView] Page loaded');
-            win.webContents.send('vidsrc-loaded');
-        });
-
-        // Load the URL
-        try {
-            await vidsrcView.webContents.loadURL(url);
-            return { success: true };
-        } catch (err) {
-            console.error('[BrowserView] Load failed:', err.message);
-            return { success: false, error: err.message };
-        }
+    ipcMain.handle('vidsrc-create', async () => {
+        console.log('[VidSrc] BrowserView deprecated - use Consumet API instead');
+        return { success: false, error: 'BrowserView deprecated in Electron 39' };
     });
 
-    // Destroy BrowserView
     ipcMain.handle('vidsrc-destroy', () => {
-        console.log('[BrowserView] Destroying');
-        if (vidsrcView) {
-            win.removeBrowserView(vidsrcView);
-            vidsrcView.webContents.destroy();
-            vidsrcView = null;
-        }
         return { success: true };
     });
 
-    // Update BrowserView bounds
-    ipcMain.on('vidsrc-resize', (event, bounds) => {
-        if (vidsrcView) {
-            vidsrcView.setBounds(bounds);
-        }
+    ipcMain.on('vidsrc-resize', () => { });
+
+    ipcMain.handle('vidsrc-execute', async () => {
+        return { success: false, error: 'BrowserView deprecated' };
     });
 
-    // Execute JavaScript in BrowserView (main frame and all subframes)
-    ipcMain.handle('vidsrc-execute', async (event, script) => {
-        if (!vidsrcView) return { success: false, error: 'No view' };
-        try {
-            const result = await vidsrcView.webContents.executeJavaScript(script);
-            return { success: true, result };
-        } catch (err) {
-            return { success: false, error: err.message };
-        }
-    });
-
-    // Get all frames and try to find video element
     ipcMain.handle('vidsrc-find-video', async () => {
-        if (!vidsrcView) return { found: false };
-
-        const findVideoScript = `
-            (function() {
-                // Check main frame
-                const mainVideo = document.querySelector('video');
-                if (mainVideo && mainVideo.src) {
-                    return { found: true, src: mainVideo.src, frame: 'main' };
-                }
-                
-                // Check iframes (same-origin only)
-                const iframes = document.querySelectorAll('iframe');
-                for (let i = 0; i < iframes.length; i++) {
-                    try {
-                        const iframeDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-                        const video = iframeDoc.querySelector('video');
-                        if (video && video.src) {
-                            return { found: true, src: video.src, frame: 'iframe-' + i };
-                        }
-                    } catch (e) {
-                        // Cross-origin iframe, can't access
-                    }
-                }
-                return { found: false };
-            })();
-        `;
-
-        try {
-            const result = await vidsrcView.webContents.executeJavaScript(findVideoScript);
-            console.log('[BrowserView] Video search result:', result);
-            return result;
-        } catch (err) {
-            return { found: false, error: err.message };
-        }
+        return { found: false, error: 'BrowserView deprecated' };
     });
     // === END BROWSERVIEW IMPLEMENTATION ===
 
-    // === CONSUMET API STREAMING ===
-    // Import the Consumet service (CommonJS in ESM context)
-    const { createRequire } = await import('module');
-    const require = createRequire(import.meta.url);
+    // === P-STREAM PROVIDERS API STREAMING ===
+    // Import the p-stream providers (Standard Fetcher for Node/Electron)
+    const { makeProviders, makeStandardFetcher, targets } = await import('@p-stream/providers');
 
-    let consumetService;
-    try {
-        consumetService = require('./consumet-service.cjs');
-        console.log('[Main] Consumet service loaded successfully');
-        console.log('[Main] Using Consumet API at:', consumetService.CONSUMET_BASE);
+    // Initialize providers instance (Native target for Electron/Node environment)
+    const fetcher = makeStandardFetcher(fetch);
+    const providers = makeProviders({
+        fetcher: fetcher,
+        target: targets.NATIVE
+    });
+    console.log('[Main] Provider system initialized using @p-stream/providers');
 
-        // Initialize Suwayomi (Hardcoded for now based on user's deployment)
-        if (consumetService.setSuwayomiUrl) {
-            consumetService.setSuwayomiUrl('https://my-suwayomi.onrender.com');
-        }
-    } catch (err) {
-        console.error('[Main] Failed to load Consumet service:', err.message);
-    }
-
-    // IPC handler for getting stream via Consumet API
-    ipcMain.handle('consumet-stream', async (event, { title, type, year, season, episode }) => {
-        if (!consumetService) {
-            return { success: false, error: 'Consumet service not loaded' };
-        }
-
-        console.log(`[Main] Getting stream for: ${title} (${type})`);
-
+    // Primary stream handler (routes through p-stream)
+    ipcMain.handle('pstream-stream', async (event, { title, type, year, season, episode, tmdbId }) => {
+        console.log(`[p-stream] Stream requested: ${title} (${type}), tmdbId=${tmdbId}`);
         try {
-            const result = await consumetService.getStream(title, type, year, season, episode);
-            if (result.success) {
-                console.log(`[Main] Stream found from ${result.provider}`);
+            const tid = String(tmdbId || '');
+            const media = type === 'movie' || type !== 'tv'
+                ? { type: 'movie', title, releaseYear: year, tmdbId: tid }
+                : {
+                    type: 'show', title, releaseYear: year, tmdbId: tid,
+                    episode: { number: Number(episode) },
+                    season: { number: Number(season) }
+                };
+
+            // Use specific fast sources for movies if possible to speed up discovery
+            const sourceOrder = type === 'movie' || type !== 'tv' ? ['flixhq', 'sflix', 'goku'] : undefined;
+
+            const streamResult = await providers.runAll({ media, sourceOrder });
+            if (streamResult && streamResult.stream) {
+                const stream = streamResult.stream;
+                let sources = [];
+                if (stream.type === 'hls') {
+                    sources.push({ url: stream.playlist, quality: 'auto', isM3U8: true });
+                } else if (stream.type === 'file' && stream.qualities) {
+                    for (const [quality, fileObj] of Object.entries(stream.qualities)) {
+                        if (fileObj && fileObj.url) sources.push({ url: fileObj.url, quality, isM3U8: false });
+                    }
+                }
+                if (sources.length > 0) {
+                    return {
+                        success: true,
+                        sources,
+                        subtitles: (stream.captions || []).map(sub => ({ url: sub.url, lang: sub.language || 'Unknown' })),
+                        provider: 'p-stream'
+                    };
+                }
             }
-            return result;
+            return { success: false, error: 'No streams found' };
         } catch (err) {
-            console.error('[Main] Consumet stream failed:', err.message);
+            console.error('[p-stream] Stream error:', err.message);
             return { success: false, error: err.message };
         }
     });
 
-    // IPC handler for prefetching stream (caches the result)
-    ipcMain.handle('consumet-prefetch', async (event, { title, type, year, season, episode }) => {
-        if (!consumetService) return;
+    // Prefetch handler
+    ipcMain.handle('pstream-prefetch', async (event, { title, type, year, season, episode, tmdbId }) => {
+        const tid = String(tmdbId || '');
+        const media = type === 'movie' || type !== 'tv'
+            ? { type: 'movie', title, releaseYear: year, tmdbId: tid }
+            : {
+                type: 'show', title, releaseYear: year, tmdbId: tid,
+                episode: { number: Number(episode) },
+                season: { number: Number(season) }
+            };
 
-        // Run in background without awaiting the result to return to renderer unless needed
-        // But IPC handlers await. So we just call it.
-        // The service's getStream with prefetch=true will just cache and return.
-        consumetService.getStream(title, type, year, season, episode, true)
-            .then(res => {
-                if (res.success) console.log(`[Main] Prefetch success for ${title}`);
-            })
+        providers.runAll({ media })
+            .then(res => { if (res?.stream) console.log(`[Main] Prefetch success for ${title}`); })
             .catch(err => console.error(`[Main] Prefetch error for ${title}`, err.message));
 
         return { success: true, started: true };
     });
 
-    // === BOOK SERVICE IPC HANDLERS ===
-
-    // Search Books
-    ipcMain.handle('consumet-books-search', async (event, { query, type }) => {
-        if (!consumetService) return { success: false, error: 'Service not loaded' };
-        try {
-            console.log(`[Main] Searching books: ${query} (${type})`);
-            const result = await consumetService.searchBooks(query, type);
-            return { success: true, results: result ? result.results : [] };
-        } catch (err) {
-            console.error('[Main] Book search failed:', err);
-            return { success: false, error: err.message };
-        }
-    });
-
-    // Get Book Details
-    ipcMain.handle('consumet-books-info', async (event, { id, type }) => {
-        if (!consumetService) return { success: false, error: 'Service not loaded' };
-        try {
-            console.log(`[Main] Getting book info: ${id}`);
-            const result = await consumetService.getBookDetails(id, type);
-            return { success: true, data: result };
-        } catch (err) {
-            console.error('[Main] Book info failed:', err);
-            return { success: false, error: err.message };
-        }
-    });
-
-    // Get Chapter Pages
-    ipcMain.handle('consumet-books-read', async (event, { chapterId, type }) => {
-        if (!consumetService) return { success: false, error: 'Service not loaded' };
-        try {
-            console.log(`[Main] Getting pages: ${chapterId}`);
-            // Note: MangaDex/Consumet might return array directly or object
-            const result = await consumetService.getChapterPages(chapterId, type);
-            return { success: true, data: result };
-        } catch (err) {
-            console.error('[Main] Book read failed:', err);
-            return { success: false, error: err.message };
-        }
-    });
-    // === END CONSUMET API STREAMING ===
+    // === BOOK SERVICE IPC HANDLERS - DEPRECATED ===
+    ipcMain.handle('pstream-books-search', async () => ({ success: false, error: 'Manga/Comic scraping removed' }));
+    ipcMain.handle('pstream-books-info', async () => ({ success: false, error: 'Manga/Comic scraping removed' }));
+    ipcMain.handle('pstream-books-read', async () => ({ success: false, error: 'Manga/Comic scraping removed' }));
+    // === END BOOK SERVICE ===
 
     // Enable streaming permissions
     win.webContents.session.setPermissionCheckHandler(() => true);
@@ -565,61 +468,52 @@ async function createWindow() {
         }
     });
 
-    // STREAMING API: Run Consumet in main process (bypasses browser XHR header restrictions)
+    // STREAMING API: Run p-stream providers in main process (bypasses browser XHR header restrictions)
     ipcMain.handle('stream:movie', async (event, { title, year, tmdbId }) => {
         try {
-            console.log(`[Stream] Getting movie: "${title}" (${year})`);
-            const { MOVIES } = await import('@consumet/extensions');
+            console.log(`[Stream] Getting movie: "${title}" (${year}) via p-stream/providers`);
 
-            const providers = [
-                { name: 'Goku', create: () => new MOVIES.Goku() },
-                { name: 'HiMovies', create: () => new MOVIES.HiMovies() },
-                { name: 'FlixHQ', create: () => new MOVIES.FlixHQ() },
-                { name: 'SFlix', create: () => new MOVIES.SFlix() },
-            ];
+            const media = {
+                type: 'movie',
+                title: title,
+                releaseYear: year,
+                tmdbId: typeof tmdbId === 'string' ? tmdbId : String(tmdbId)
+            };
 
-            for (const { name, create } of providers) {
-                try {
-                    console.log(`[Stream] Trying ${name}...`);
-                    const provider = create();
-                    const searchResults = await provider.search(title);
+            const streamResult = await providers.runAll({ media });
 
-                    if (!searchResults?.results?.length) continue;
+            if (streamResult && streamResult.stream) {
+                console.log(`[Stream] ✅ Got stream from provider using p-stream`);
+                const stream = streamResult.stream;
 
-                    const match = searchResults.results.find(r =>
-                        r.title?.toLowerCase().includes(title.toLowerCase()) ||
-                        title.toLowerCase().includes(r.title?.toLowerCase())
-                    ) || searchResults.results[0];
-
-                    console.log(`[Stream] Found: ${match.title}`);
-                    const info = await provider.fetchMediaInfo(match.id);
-
-                    if (!info?.episodes?.length) continue;
-
-                    const sources = await provider.fetchEpisodeSources(info.episodes[0].id, match.id);
-
-                    if (sources?.sources?.length) {
-                        console.log(`[Stream] ✅ Got ${sources.sources.length} sources from ${name}`);
-                        return {
-                            sources: sources.sources.map(s => ({
-                                url: s.url,
-                                quality: s.quality || 'auto',
-                                isM3U8: s.isM3U8 ?? s.url.includes('.m3u8'),
-                                provider: name
-                            })),
-                            headers: sources.headers || {},
-                            subtitles: (sources.subtitles || []).map(sub => ({
-                                url: sub.url,
-                                lang: sub.lang || 'Unknown'
-                            }))
-                        };
+                // Map p-stream output to our standard VideoPlayer format
+                let sources = [];
+                if (stream.type === 'hls') {
+                    sources.push({ url: stream.playlist, quality: 'auto', isM3U8: true, provider: 'p-stream' });
+                } else if (stream.type === 'file') {
+                    // Extract qualities from file stream
+                    if (stream.qualities) {
+                        for (const [quality, fileObj] of Object.entries(stream.qualities)) {
+                            if (fileObj && fileObj.url) {
+                                sources.push({ url: fileObj.url, quality: quality, isM3U8: fileObj.type === 'm3u8', provider: 'p-stream' });
+                            }
+                        }
                     }
-                } catch (err) {
-                    console.error(`[Stream] ${name} error:`, err.message);
+                }
+
+                if (sources.length > 0) {
+                    return {
+                        sources: sources,
+                        headers: stream.headers || {},
+                        subtitles: (stream.captions || []).map(sub => ({
+                            url: sub.url,
+                            lang: sub.language || sub.id || 'Unknown'
+                        }))
+                    };
                 }
             }
 
-            console.log('[Stream] All providers failed');
+            console.log('[Stream] All providers failed or returned null');
             return null;
         } catch (error) {
             console.error('[Stream] Movie stream error:', error);
@@ -629,56 +523,47 @@ async function createWindow() {
 
     ipcMain.handle('stream:tv', async (event, { title, season, episode, year, tmdbId }) => {
         try {
-            console.log(`[Stream] Getting TV: "${title}" S${season}E${episode}`);
-            const { MOVIES } = await import('@consumet/extensions');
+            console.log(`[Stream] Getting TV: "${title}" S${season}E${episode} via p-stream`);
 
-            const providers = [
-                { name: 'Goku', create: () => new MOVIES.Goku() },
-                { name: 'HiMovies', create: () => new MOVIES.HiMovies() },
-                { name: 'FlixHQ', create: () => new MOVIES.FlixHQ() },
-                { name: 'SFlix', create: () => new MOVIES.SFlix() },
-            ];
+            const tid = typeof tmdbId === 'string' ? tmdbId : String(tmdbId || '');
+            const media = {
+                type: 'show',
+                title: title,
+                releaseYear: year,
+                tmdbId: tid,
+                episode: { number: Number(episode) },
+                season: { number: Number(season) }
+            };
 
-            for (const { name, create } of providers) {
-                try {
-                    console.log(`[Stream] Trying ${name}...`);
-                    const provider = create();
-                    const searchResults = await provider.search(title);
+            const streamResult = await providers.runAll({ media });
 
-                    if (!searchResults?.results?.length) continue;
+            if (streamResult && streamResult.stream) {
+                console.log(`[Stream] ✅ Got stream from provider using p-stream`);
+                const stream = streamResult.stream;
 
-                    const match = searchResults.results[0];
-                    console.log(`[Stream] Found: ${match.title}`);
-
-                    const info = await provider.fetchMediaInfo(match.id);
-                    if (!info?.episodes?.length) continue;
-
-                    const targetEp = info.episodes.find(ep =>
-                        ep.season === season && ep.episode === episode
-                    ) || info.episodes.find(ep => ep.number === episode);
-
-                    if (!targetEp) continue;
-
-                    const sources = await provider.fetchEpisodeSources(targetEp.id, match.id);
-
-                    if (sources?.sources?.length) {
-                        console.log(`[Stream] ✅ Got ${sources.sources.length} sources from ${name}`);
-                        return {
-                            sources: sources.sources.map(s => ({
-                                url: s.url,
-                                quality: s.quality || 'auto',
-                                isM3U8: s.isM3U8 ?? s.url.includes('.m3u8'),
-                                provider: name
-                            })),
-                            headers: sources.headers || {},
-                            subtitles: (sources.subtitles || []).map(sub => ({
-                                url: sub.url,
-                                lang: sub.lang || 'Unknown'
-                            }))
-                        };
+                // Map p-stream output to our standard format
+                let sources = [];
+                if (stream.type === 'hls') {
+                    sources.push({ url: stream.playlist, quality: 'auto', isM3U8: true, provider: 'p-stream' });
+                } else if (stream.type === 'file') {
+                    if (stream.qualities) {
+                        for (const [quality, fileObj] of Object.entries(stream.qualities)) {
+                            if (fileObj && fileObj.url) {
+                                sources.push({ url: fileObj.url, quality: quality, isM3U8: fileObj.type === 'm3u8', provider: 'p-stream' });
+                            }
+                        }
                     }
-                } catch (err) {
-                    console.error(`[Stream] ${name} error:`, err.message);
+                }
+
+                if (sources.length > 0) {
+                    return {
+                        sources: sources,
+                        headers: stream.headers || {},
+                        subtitles: (stream.captions || []).map(sub => ({
+                            url: sub.url,
+                            lang: sub.language || sub.id || 'Unknown'
+                        }))
+                    };
                 }
             }
 
@@ -739,11 +624,7 @@ app.whenReady().then(async () => {
 
     // === NEW: SMART COMIC STREAMING PROTOCOL (Local + Cloud) ===
     // Usage: comic://stream?path=...&file=... OR comic://image?id=...
-    const StreamZip = require('node-stream-zip');
-    const zipCache = new Map(); // Keep open zips in memory (The "Pipe")
-    const { Readable } = require('stream');
-    const { downloadFile, getFileStream } = require('../services/DriveService.cjs');
-    const { getLibrary, getSeries, getIssues } = require('../services/SupabaseService.cjs');
+
 
     protocol.handle('comic', async (request) => {
         const url = new URL(request.url);
@@ -880,16 +761,78 @@ app.whenReady().then(async () => {
     });
 
     // === NEW: CLOUD LIBRARY IPCs ===
-    ipcMain.handle('cloud-library', async () => { return await getLibrary(); });
-    ipcMain.handle('cloud-series', async () => { return await getSeries(); });
-    ipcMain.handle('cloud-issues', async (event, seriesId) => { return await getIssues(seriesId); });
-    ipcMain.handle('drive-stream', async (event, fileId) => { return await downloadFile(fileId); });
+    ipcMain.handle('cloud-library', async () => {
+        console.log('[IPC] cloud-library called. getLibrary type:', typeof getLibrary);
+        if (typeof getLibrary !== 'function') {
+            return { success: false, error: 'SupabaseService not loaded - check .env file and console for errors' };
+        }
+        return await getLibrary();
+    });
+
+    ipcMain.handle('cloud-series', async () => {
+        console.log('[IPC] cloud-series called. getSeries type:', typeof getSeries);
+        if (typeof getSeries !== 'function') {
+            return { success: false, error: 'SupabaseService not loaded' };
+        }
+        return await getSeries();
+    });
+
+    ipcMain.handle('cloud-issues', async (event, seriesId) => {
+        if (typeof getIssues !== 'function') {
+            return { success: false, error: 'SupabaseService not loaded' };
+        }
+        return await getIssues(seriesId);
+    });
+
+    ipcMain.handle('drive-stream', async (event, fileId) => {
+        console.log('[IPC] drive-stream called for:', fileId);
+        if (typeof downloadFile !== 'function') {
+            return { success: false, error: 'DriveService not loaded - check credentials.json' };
+        }
+        return await downloadFile(fileId);
+    });
 
     // === SUBTITLE FETCH PROXY (bypasses CORS) ===
     ipcMain.handle('fetch-subtitle', async (event, url) => {
         try {
             console.log('[Main] Fetching subtitle:', url);
-            const response = await net.fetch(url, {
+            let finalUrl = url;
+
+            // Handle OpenSubtitles v1 API custom protocol
+            if (url.startsWith('opensubtitles://')) {
+                const fileId = url.replace('opensubtitles://', '');
+
+                // Read API key from environment, if any
+                const apiKey = process.env.VITE_OPENSUBTITLES_API_KEY || '';
+                const headers = {
+                    'User-Agent': 'Kinemora v2',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                };
+                if (apiKey) {
+                    headers['Api-Key'] = apiKey;
+                }
+
+                console.log('[Main] Getting AWS download link from OpenSubtitles for file:', fileId);
+                const dlResponse = await net.fetch('https://api.opensubtitles.com/api/v1/download', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ file_id: parseInt(fileId) })
+                });
+
+                if (!dlResponse.ok) {
+                    throw new Error(`OpenSubtitles download API returned ${dlResponse.status}`);
+                }
+
+                const dlData = await dlResponse.json();
+                if (!dlData.link) {
+                    throw new Error('No download link found in OpenSubtitles response');
+                }
+                finalUrl = dlData.link;
+                console.log('[Main] Resolved OpenSubtitles link:', finalUrl);
+            }
+
+            const response = await net.fetch(finalUrl, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
@@ -899,6 +842,7 @@ app.whenReady().then(async () => {
             }
             const text = await response.text();
             console.log('[Main] Subtitle fetched, length:', text.length);
+            console.log('[Main] Subtitle prefix preview:', text.substring(0, 200).replace(/\n/g, '\\n'));
             return { success: true, text };
         } catch (err) {
             console.error('[Main] Subtitle fetch error:', err.message);
@@ -906,14 +850,14 @@ app.whenReady().then(async () => {
         }
     });
 
-    createWindow();
+});
 
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
-    });
+app.whenReady().then(createWindow);
 
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
 });
 
 app.on('window-all-closed', () => {

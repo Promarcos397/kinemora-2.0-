@@ -1,8 +1,8 @@
 {
     "nav": {
         "home": "Home",
-        "shows": "Shows",
-        "movies": "Movies",
+        "shows": "Series",
+        "movies": "Films",
         "newPopular": "New & Popular",
         "myList": "My List"
     },
@@ -29,7 +29,7 @@
         "minute": "m",
         "min": "min",
         "series": "Series",
-        "movie": "Movie",
+        "movie": "Film",
         "season": "Season",
         "cast": "Cast:",
         "genres": "Genres:",
@@ -51,10 +51,10 @@
         "playbackSettingsSub": "Set autoplay and audio, video quality",
         "notificationsSub": "Manage notifications for email, text, push",
         "displayLanguage": "Display Language",
-        "displayLanguageDesc": "Sets the language for movie titles, descriptions, and other content.",
+        "displayLanguageDesc": "Sets the language for film titles, descriptions, and other content.",
         "subtitleLanguage": "Preferred Subtitle Language",
         "subtitleLanguageDesc": "Automatically selects subtitles in this language when available.",
-        "languageNote": "Display language affects movie titles and descriptions. Subtitle preference is used when starting new videos.",
+        "languageNote": "Display language affects film titles and descriptions. Subtitle preference is used when starting new videos.",
         "resetConfirm": "Restore default playback and subtitle settings?"
     },
     "rows": {
@@ -77,7 +77,7 @@
         "worthWait": "Worth the Wait",
         "comingSoon": "Coming Soon",
         "top10TV": "Top 10 TV Shows Today",
-        "top10Movies": "Top 10 Movies Today",
+        "top10Movies": "Top 10 Films Today",
         "exploreAll": "Explore All"
     },
     "sort": {
@@ -88,10 +88,10 @@
     },
     "list": {
         "all": "All",
-        "movies": "Movies",
-        "shows": "TV Shows",
+        "movies": "Films",
+        "shows": "Series",
         "empty": "Your list is empty",
-        "emptyDesc": "Titles you add to your list will appear here. Add movies and TV shows to keep track of what you want to watch.",
+        "emptyDesc": "Titles you add to your list will appear here. Add films and series to keep track of what you want to watch.",
         "noMatches": "No titles found matching your filters.",
         "reset": "Reset Filters"
     },
@@ -100,8 +100,8 @@
         "noMatches": "Your search for \"{{query}}\" did not have any matches.",
         "suggestions": "Suggestions:",
         "tip1": "Try different keywords",
-        "tip2": "Looking for a movie or TV show?",
-        "tip3": "Try using a movie, TV show title, or an actor"
+        "tip2": "Looking for a film or series?",
+        "tip3": "Try using a film, series title, or an actor"
     },
     "modal": {
         "episodes": "Episodes",
@@ -189,7 +189,7 @@
         "9648": "Mystery",
         "10749": "Romance",
         "878": "Science Fiction",
-        "10770": "TV Movie",
+        "10770": "TV Film",
         "53": "Thriller",
         "10752": "War",
         "37": "Western",

@@ -26,13 +26,13 @@ const HeroCarouselContent: React.FC<HeroCarouselContentProps> = ({
 }) => {
     const { t } = useTranslation();
     return (
-        <div className={`absolute top-0 left-0 w-full h-full flex flex-col justify-center z-20 pb-12 sm:pb-0 
-          pl-6 md:pl-14 lg:pl-20 pr-4 md:pr-12 pointer-events-none transition-opacity duration-700`}
+        <div className={`absolute top-0 left-0 w-full h-full flex flex-col justify-end z-20 
+          pl-6 md:pl-14 lg:pl-16 pr-4 md:pr-12 pointer-events-none pb-[18%] sm:pb-[16%] md:pb-[14%]`}
         >
-            <div className="mt-16 sm:mt-0 max-w-[90%] sm:max-w-lg md:max-w-2xl lg:max-w-3xl space-y-4 md:space-y-6 pointer-events-auto">
+            <div className="max-w-[90%] sm:max-w-lg md:max-w-xl lg:max-w-2xl space-y-3 md:space-y-4 pointer-events-auto">
 
-                {/* Logo/Title - Resets position when video ended */}
-                <div className={`h-16 sm:h-24 md:h-32 flex items-end mb-2 origin-bottom-left transition-all duration-700 ${isVideoReady && !hasVideoEnded ? 'scale-75 origin-bottom-left translate-y-24' : ''}`}>
+                {/* Logo/Title - Anchored lower, scales down during video playback */}
+                <div className={`h-14 sm:h-20 md:h-28 flex items-end mb-4 md:mb-5 origin-bottom-left transition-all duration-700 ${isVideoReady && !hasVideoEnded ? 'scale-[0.65] origin-bottom-left translate-y-6' : ''}`}>
                     {logoUrl ? (
                         <img src={logoUrl} alt="title logo" className="h-full object-contain drop-shadow-2xl" />
                     ) : (
@@ -42,28 +42,32 @@ const HeroCarouselContent: React.FC<HeroCarouselContentProps> = ({
                     )}
                 </div>
 
-                {/* Description - Shows when video is not ready or has ended */}
-                <p
-                    className={`text-sm md:text-base text-gray-100 line-clamp-3 drop-shadow-md font-normal leading-relaxed text-shadow-sm max-w-lg transition-opacity duration-700 ${isVideoReady && !hasVideoEnded ? 'opacity-0' : 'opacity-100'} ${['ar', 'he'].includes(t('lang', { defaultValue: 'en' }).split('-')[0]) ? 'text-right' : ''}`}
-                    dir={['ar', 'he'].includes(useTranslation().i18n.language.split('-')[0]) ? "rtl" : "ltr"}
-                >
-                    {movie?.overview}
-                </p>
+                {/* Description - Hides when video plays */}
+                <div className={`transition-all duration-700 overflow-hidden ${isVideoReady && !hasVideoEnded ? 'opacity-0 max-h-0' : 'opacity-100 max-h-40 mb-5 md:mb-6'}`}>
+                    <p
+                        className={`text-[13px] md:text-[15px] font-medium text-white line-clamp-2 md:line-clamp-3 drop-shadow-lg leading-snug max-w-lg transition-all duration-700 ${['ar', 'he'].includes(t('lang', { defaultValue: 'en' }).split('-')[0]) ? 'text-right' : ''}`}
+                        dir={['ar', 'he'].includes(useTranslation().i18n.language.split('-')[0]) ? "rtl" : "ltr"}
+                    >
+                        {movie?.overview}
+                    </p>
+                </div>
 
-                {/* Buttons - Resets position when video ended */}
-                <div className={`flex items-center space-x-3 pt-2 transition-transform duration-700 ${isVideoReady && !hasVideoEnded ? 'translate-y-8' : ''}`}>
+                {/* Netflix-style CTA Buttons */}
+                <div className={`flex items-center gap-2 transition-transform duration-700 ${isVideoReady && !hasVideoEnded ? 'translate-y-2' : ''}`}>
                     <button
                         onClick={() => onPlay(movie)}
-                        className="flex items-center justify-center bg-white text-black px-5 md:px-7 h-10 md:h-12 rounded-[4px] font-bold hover:bg-white/90 transition transform hover:scale-105 active:scale-95 text-sm md:text-base"
+                        className="flex items-center justify-center bg-white text-black px-4 md:px-6 h-[36px] md:h-[42px] rounded-[4px] font-semibold hover:bg-white/80 transition-colors text-sm md:text-[15px] gap-1.5"
                     >
-                        <PlayIcon weight="fill" className="w-5 h-5 md:w-7 md:h-7 mr-1 md:mr-2 text-black" />
+                        <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] md:w-5 md:h-5 fill-black">
+                            <polygon points="6,3 20,12 6,21" />
+                        </svg>
                         {t('hero.play')}
                     </button>
                     <button
                         onClick={() => onSelect(movie, currentTime, trailerVideoId)}
-                        className="flex items-center justify-center bg-gray-500/70 text-white px-6 md:px-9 h-10 md:h-12 rounded-[4px] font-bold hover:bg-gray-500/50 backdrop-blur-md transition transform hover:scale-105 active:scale-95 text-sm md:text-base"
+                        className="flex items-center justify-center bg-[#6d6d6e]/60 text-white px-5 md:px-7 h-[36px] md:h-[42px] rounded-[4px] font-semibold hover:bg-[#6d6d6e]/40 backdrop-blur-sm transition-colors text-sm md:text-[15px] gap-2"
                     >
-                        <InfoIcon weight="regular" className="mr-2 text-2xl md:text-3xl" />
+                        <InfoIcon weight="bold" className="text-lg md:text-xl" />
                         {t('hero.moreInfo')}
                     </button>
                 </div>

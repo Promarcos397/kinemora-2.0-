@@ -1,3 +1,10 @@
+import { getExternalIds } from './api';
+
+export interface SubtitleTrack {
+    url: string;
+    lang: string;
+    label: string;
+}
 
 // Helper for language codes (can be expanded)
 const langMap: Record<string, string> = {
@@ -30,89 +37,87 @@ const langMap: Record<string, string> = {
 };
 
 function labelToLanguageCode(label: string): string {
-    // Basic mapping or try to parse
-    const normalized = label.split(' ')[0]; // "English (US)" -> "English"
-    return langMap[normalized] || 'en'; // Default to en if unknown or keep raw? 
-    // Actually, returning 'en' for unknown might be bad.
-    // Let's attempt to match common names.
-}
-
-export interface SubtitleTrack {
-    url: string;
-    lang: string;
-    label: string;
+    const normalized = label.split(' ')[0];
+    return langMap[normalized] || 'en';
 }
 
 export const SubtitleService = {
-    getOpenSubtitles: async (imdbId: string, season?: number, episode?: number): Promise<SubtitleTrack[]> => {
+    getOpenSubtitles: async (tmdbId: string, season?: number, episode?: number): Promise<SubtitleTrack[]> => {
         try {
-            if (!imdbId) return [];
+            if (!tmdbId) return [];
 
-            // Clean ID (remove 'tt')
-            const cleanId = imdbId.replace('tt', '');
+            const cleanId = tmdbId.replace('tt', '');
 
-            // Construct URL
-            let url = '';
-            if (season && episode) {
-                url = `https://rest.opensubtitles.org/search/episode-${episode}/imdbid-${cleanId}/season-${season}`;
-            } else {
-                url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}`;
+            // Note: The legacy OpenSubtitles REST API requires IMDB IDs to ensure perfect episode matching
+            const extIds = await getExternalIds(cleanId, season ? 'tv' : 'movie');
+            if (!extIds?.imdb_id) {
+                console.warn('[SubtitleService] Missing IMDB ID for legacy OpenSubtitles search.');
+                return [];
             }
 
-            console.log(`[SubtitleService] Fetching OpenSubtitles for ${imdbId}...`, url);
+            const imdbId = extIds.imdb_id.replace('tt', '');
 
-            // Use Electron IPC if available
-            // @ts-ignore
+            // Use the unrestricted legacy API endpoint
+            let url = `https://rest.opensubtitles.org/search/`;
+            if (season && episode) {
+                url += `episode-${episode}/imdbid-${imdbId}/season-${season}`;
+            } else {
+                url += `imdbid-${imdbId}`;
+            }
+
+            console.log(`[SubtitleService] Fetching from unrestricted legacy OpenSubtitles API for IMDB ${imdbId}...`);
+
+            const headers = { "X-User-Agent": "VLSub 0.10.2" };
             let data: any = null;
 
             // @ts-ignore
             if (window.electron && window.electron.request) {
                 // @ts-ignore
-                const response = await window.electron.request({
-                    url,
-                    headers: { "X-User-Agent": "VLSub 0.10.2" }
-                });
-
+                const response = await window.electron.request({ url, headers });
                 if (!response.ok) {
-                    console.warn(`[SubtitleService] OpenSubtitles IPC API returned ${response.status}`);
+                    console.warn(`[SubtitleService] Legacy OpenSubtitles API returned ${response.status}`);
                     return [];
                 }
-
-                // Parse body if string, otherwise use as is
                 data = typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
             } else {
-                // Browser Fallback
-                const response = await fetch(url, { headers: { "X-User-Agent": "VLSub 0.10.2" } });
+                const response = await fetch(url, { headers });
                 if (!response.ok) return [];
                 data = await response.json();
             }
 
-            console.log('[SubtitleService] Raw response:', data);
             const captions: SubtitleTrack[] = [];
 
             if (Array.isArray(data)) {
                 for (const caption of data) {
+                    // Reformat the gz format link into a direct text download (this bypasses limits entirely)
                     let downloadUrl = caption.SubDownloadLink;
                     if (downloadUrl) {
                         downloadUrl = downloadUrl.replace(".gz", "").replace("download/", "download/subencoding-utf8/");
 
-                        const label = caption.LanguageName || 'Unknown';
-                        const lang = caption.ISO639 || labelToLanguageCode(label);
-
+                        const language = labelToLanguageCode(caption.LanguageName) || "en";
                         captions.push({
                             url: downloadUrl,
-                            label: label,
-                            lang: lang
+                            label: caption.LanguageName || 'Unknown',
+                            lang: language
                         });
                     }
                 }
             }
 
-            console.log(`[SubtitleService] Found ${captions.length} subtitles.`);
-            return captions;
+            // Simple deduplication per language (keeps the most seeded match as OpenSubtitles sorts them)
+            const uniqueCaptions = captions.reduce((acc, current) => {
+                const x = acc.find(item => item.lang === current.lang);
+                if (!x) {
+                    return acc.concat([current]);
+                } else {
+                    return acc;
+                }
+            }, [] as SubtitleTrack[]);
 
+            console.log(`[SubtitleService] Successfully fetched ${uniqueCaptions.length} unlimited subtitles.`);
+            return uniqueCaptions;
         } catch (error) {
-            console.error("[SubtitleService] Error fetching OpenSubtitles:", error);
+            console.error("[SubtitleService] Error fetching from legacy OpenSubtitles:", error);
             return [];
         }
     }

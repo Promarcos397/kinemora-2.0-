@@ -3,10 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { Movie, Episode } from '../types';
 import { getSeasonDetails, getMovieDetails } from '../services/api';
 import Hls from 'hls.js';
+import ISO6391 from 'iso-639-1';
 
 import { useGlobalContext } from '../context/GlobalContext';
 import { useTitle } from '../context/TitleContext';
 import { parseSubtitles, captionIsVisible, sanitize, CaptionCueType, makeQueId } from '../utils/captions';
+import { streamCache } from '../utils/streamCache';
+import { useTouchGestures } from '../hooks/useTouchGestures';
+import { SubtitleService } from '../services/SubtitleService';
 
 // Child Components
 import VideoPlayerControls from './VideoPlayerControls';
@@ -24,17 +28,18 @@ interface VideoPlayerProps {
 const CaptionCue: React.FC<{ cue: CaptionCueType }> = ({ cue }) => {
     const { settings } = useGlobalContext();
 
-    const parsedHtml = useMemo(() => {
-        let textToUse = cue.content;
-        const textWithNewlines = (textToUse || "")
-            .replaceAll(/ i'/g, " I'")
-            .replaceAll(/\r?\n/g, "<br />");
+    const parsedLines = useMemo(() => {
+        let textToUse = cue.content || "";
+        textToUse = textToUse.replaceAll(/ i'/g, " I'");
 
-        return sanitize(textWithNewlines, {
-            ALLOWED_TAGS: ["c", "b", "i", "u", "span", "ruby", "rt", "br"],
+        // Split by newlines so each line gets its own span for precise text-backgrounds
+        const lines = textToUse.split(/\r?\n/);
+
+        return lines.map(line => sanitize(line, {
+            ALLOWED_TAGS: ["c", "b", "i", "u", "span", "ruby", "rt"],
             ADD_TAGS: ["v", "lang"],
             ALLOWED_ATTR: ["title", "lang"],
-        });
+        }));
     }, [cue.content]);
 
     const getTextEffectStyles = () => {
@@ -59,7 +64,7 @@ const CaptionCue: React.FC<{ cue: CaptionCueType }> = ({ cue }) => {
                 };
             case "drop-shadow":
             default:
-                return { textShadow: "2px 2px 4px rgba(0, 0, 0, 0.8)" };
+                return { textShadow: "2px 2px 4px rgba(0, 0, 0, 0.8), 0px 0px 2px rgba(0,0,0,0.5)" };
         }
     };
 
@@ -67,33 +72,34 @@ const CaptionCue: React.FC<{ cue: CaptionCueType }> = ({ cue }) => {
         ? { backgroundColor: settings.subtitleWindowColor || 'rgba(8, 8, 8, 0.75)' }
         : {};
 
-    // Map subtitle size setting to pixel values
     const sizeMap: Record<string, number> = {
-        tiny: 16,
-        small: 20,
-        medium: 26,
-        large: 32,
-        huge: 40
+        tiny: 16, small: 20, medium: 26, large: 32, huge: 40
     };
     const fontSize = sizeMap[settings.subtitleSize] || sizeMap.small;
 
     return (
-        <span
-            className="caption-text inline-block px-4 py-1 text-center leading-snug"
-            style={{
-                color: settings.subtitleColor || '#FFFFFF',
-                fontSize: `${fontSize}px`,
-                fontFamily: settings.subtitleFontFamily || 'inherit',
-                ...getTextEffectStyles(),
-                ...windowBg,
-            }}
-            dangerouslySetInnerHTML={{ __html: parsedHtml }}
-        />
+        <div className="text-center w-full flex flex-col items-center justify-center space-y-[2px]">
+            {parsedLines.map((htmlLine, i) => (
+                <span
+                    key={i}
+                    className="caption-text inline-block px-3 py-[2px] leading-tight rounded-sm"
+                    style={{
+                        color: settings.subtitleColor || '#FFFFFF',
+                        fontSize: `${fontSize}px`,
+                        fontFamily: settings.subtitleFontFamily || 'inherit',
+                        fontWeight: 500,
+                        ...getTextEffectStyles(),
+                        ...windowBg,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: htmlLine }}
+                />
+            ))}
+        </div>
     );
 };
 
-// Get Consumet API
-const getConsumetAPI = () => (window as any).electron?.consumet;
+// Get streaming API (routes through p-stream providers)
+const getStreamAPI = () => (window as any).electron?.pstream;
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 1, onClose }) => {
     const { settings, updateEpisodeProgress, getEpisodeProgress, updateVideoState, addToHistory, getVideoState } = useGlobalContext();
@@ -143,6 +149,61 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
     const [qualityLevels, setQualityLevels] = useState<{ height: number; bitrate: number; level: number }[]>([]);
     const [currentQualityLevel, setCurrentQualityLevel] = useState<number>(-1); // -1 = auto
 
+    // Mobile touch gesture state
+    const [skipIndicator, setSkipIndicator] = useState<{ direction: 'left' | 'right' | null; visible: boolean }>({
+        direction: null,
+        visible: false
+    });
+
+    // Touch gesture handlers
+    const showSkipIndicator = useCallback((direction: 'left' | 'right') => {
+        setSkipIndicator({ direction, visible: true });
+        setTimeout(() => setSkipIndicator({ direction: null, visible: false }), 500);
+    }, []);
+
+    const handleSkipBack = useCallback(() => {
+        const video = videoRef.current;
+        if (video) {
+            video.currentTime = Math.max(0, video.currentTime - 10);
+            showSkipIndicator('left');
+        }
+    }, [showSkipIndicator]);
+
+    const handleSkipForward = useCallback(() => {
+        const video = videoRef.current;
+        if (video) {
+            video.currentTime = Math.min(video.duration, video.currentTime + 10);
+            showSkipIndicator('right');
+        }
+    }, [showSkipIndicator]);
+
+    // Wire up touch gestures
+    useTouchGestures(containerRef as React.RefObject<HTMLElement>, {
+        onDoubleTapLeft: handleSkipBack,
+        onDoubleTapRight: handleSkipForward,
+        onDoubleTapCenter: () => {
+            const video = videoRef.current;
+            if (video) {
+                video.paused ? video.play() : video.pause();
+            }
+        },
+        onSingleTap: () => setShowUI(prev => !prev),
+        onSwipeLeft: (distance) => {
+            const video = videoRef.current;
+            if (video) {
+                const seekAmount = Math.min(30, distance / 10);
+                video.currentTime = Math.max(0, video.currentTime - seekAmount);
+            }
+        },
+        onSwipeRight: (distance) => {
+            const video = videoRef.current;
+            if (video) {
+                const seekAmount = Math.min(30, distance / 10);
+                video.currentTime = Math.min(video.duration, video.currentTime + seekAmount);
+            }
+        }
+    });
+
     // Find active episode data
     const activeEpisodeData = useMemo(() => {
         if (mediaType !== 'tv' || !currentSeasonEpisodes.length) return null;
@@ -154,10 +215,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
     const title = movie.title || movie.name || '';
     const formattedDate = movie.release_date || movie.first_air_date || '';
 
-    // --- Fetch Stream using Consumet API ---
+    // --- Fetch Stream using Consumet API with Smart Caching ---
     useEffect(() => {
         const fetchStream = async () => {
-            const api = getConsumetAPI();
+            const api = getStreamAPI();
             if (!api) {
                 setError('Consumet API not available. Are you running in Electron?');
                 setIsBuffering(false);
@@ -168,52 +229,90 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             setError(null);
             setLoadingMessage('Searching for stream...');
 
-            console.log(`[VideoPlayer] Fetching stream for ${mediaType}/${title} (${formattedDate?.split('-')[0]})`);
+            // Get release year from air date
+            const releaseYear = formattedDate ? parseInt(formattedDate.split('-')[0]) : undefined;
+
+            // Build cache key
+            const cacheKey = {
+                title,
+                type: (mediaType === 'tv' ? 'tv' : 'movie') as 'tv' | 'movie',
+                year: releaseYear,
+                season: playingSeasonNumber,
+                episode: currentEpisode,
+                tmdbId: String(movie.id || '')
+            };
+
+            // Check cache first
+            const cached = streamCache.get(cacheKey);
+            if (cached && cached.sources && cached.sources.length > 0) {
+                setLoadingMessage('Validating cached stream...');
+                console.log(`[VideoPlayer] ⚡ Found cached stream. Validating S${playingSeasonNumber}E${currentEpisode}...`);
+                try {
+                    // Attempt a partial GET request to test if the URL is still alive (bypassing expired CDN links)
+                    const testUrl = cached.sources[0].url;
+                    const testRes = await fetch(testUrl, { method: 'GET', headers: { Range: 'bytes=0-100' } });
+
+                    if (testRes.ok || testRes.status === 206) {
+                        console.log(`[VideoPlayer] ✅ Cached stream is alive! Applying.`);
+                        applyStreamResult(cached.sources, cached.subtitles);
+                        return;
+                    } else {
+                        console.warn(`[VideoPlayer] ❌ Cached stream returned HTTP ${testRes.status}. Expiring cache and searching new.`);
+                        streamCache.remove(cacheKey);
+                    }
+                } catch (e) {
+                    console.warn(`[VideoPlayer] ❌ Cached stream failed validation (likely expired). Expiring cache and searching new.`);
+                    streamCache.remove(cacheKey);
+                }
+            }
+
+            console.log(`[VideoPlayer] Fetching stream for ${mediaType}/${title} (${releaseYear})`);
 
             try {
-                // Get release year from air date
-                const releaseYear = formattedDate ? parseInt(formattedDate.split('-')[0]) : undefined;
+                // Fetch Legacy OpenSubtitles (bypass 5-request limit) in parallel with stream
+                const openSubPromise = settings.showSubtitles
+                    ? SubtitleService.getOpenSubtitles(String(movie.id), playingSeasonNumber, currentEpisode).catch(() => [])
+                    : Promise.resolve([]);
 
                 const result = await api.getStream(
                     title,
                     mediaType === 'tv' ? 'tv' : 'movie',
                     releaseYear,
                     playingSeasonNumber,
-                    currentEpisode
+                    currentEpisode,
+                    String(movie.id || '')
                 );
 
                 if (result.success && result.sources && result.sources.length > 0) {
                     console.log(`[VideoPlayer] Stream found from ${result.provider}:`, result.sources);
 
-                    // Find HLS source (m3u8) or fallback to first
-                    const hlsSource = result.sources.find((s: any) => s.isM3U8) || result.sources[0];
-                    console.log('[VideoPlayer] Selected source:', hlsSource.url);
+                    let osSubs: any[] = [];
+                    try {
+                        osSubs = await openSubPromise;
+                    } catch (e) { }
 
-                    setStreamUrl(hlsSource.url);
-                    setStreamReferer(null);
-                    setLoadingMessage('Loading video...');
+                    const combinedSubs = [...(result.subtitles || []), ...osSubs];
 
-                    // Handle subtitles if present
-                    if (result.subtitles && result.subtitles.length > 0) {
-                        console.log('[VideoPlayer] Subtitles found:', result.subtitles.length);
-                        const mappedCaptions = result.subtitles.map((sub: any, index: number) => ({
-                            id: `sub-${index}`,
-                            label: sub.lang || `Subtitle ${index + 1}`,
-                            url: sub.url,
-                            lang: (sub.lang || 'en').toLowerCase()
-                        }));
-                        setCaptions(mappedCaptions);
+                    // Cache for future use
+                    streamCache.set(cacheKey, {
+                        sources: result.sources,
+                        subtitles: combinedSubs,
+                        provider: result.provider || 'unknown'
+                    });
 
-                        // Auto-select subtitle based on user's preferred language
-                        const preferredLang = settings.subtitleLanguage?.toLowerCase() || 'en';
-                        const matchingSub = mappedCaptions.find((s: any) =>
-                            s.lang.toLowerCase().includes(preferredLang) ||
-                            s.label.toLowerCase().includes(preferredLang)
+                    applyStreamResult(result.sources, combinedSubs);
+
+                    // Prefetch next episodes in background (TV only)
+                    if (mediaType === 'tv' && currentSeasonEpisodes.length > 0) {
+                        streamCache.prefetchNextEpisodes(
+                            api,
+                            title,
+                            releaseYear,
+                            playingSeasonNumber,
+                            currentEpisode,
+                            currentSeasonEpisodes.length,
+                            String(movie.id || '')
                         );
-                        if (matchingSub && settings.showSubtitles) {
-                            console.log('[VideoPlayer] Auto-selected subtitle:', matchingSub.label);
-                            setCurrentCaption(matchingSub.url);
-                        }
                     }
                 } else {
                     console.error('[VideoPlayer] No stream found:', result.error);
@@ -224,6 +323,44 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
                 console.error('[VideoPlayer] Stream fetch error:', err);
                 setError(err.message || 'Failed to fetch stream');
                 setIsBuffering(false);
+            }
+        };
+
+        // Helper to apply stream result (used by both cached and fresh fetches)
+        const applyStreamResult = (sources: any[], subtitles: any[]) => {
+            // Find HLS source (m3u8) or fallback to first
+            const hlsSource = sources.find((s: any) => s.isM3U8) || sources[0];
+            console.log('[VideoPlayer] Selected source:', hlsSource.url);
+
+            setStreamUrl(hlsSource.url);
+            setStreamReferer(null);
+            setLoadingMessage('Loading video...');
+
+            // Handle subtitles if present
+            if (subtitles && subtitles.length > 0) {
+                console.log('[VideoPlayer] Subtitles found:', subtitles.length);
+                const mappedCaptions = subtitles.map((sub: any, index: number) => {
+                    const langCode = (sub.lang || 'en').toLowerCase().split('-')[0];
+                    const fullLangName = ISO6391.getName(langCode) || sub.label || sub.lang || `Subtitle ${index + 1}`;
+                    return {
+                        id: `sub-${index}`,
+                        label: fullLangName,
+                        url: sub.url,
+                        lang: langCode
+                    };
+                });
+                setCaptions(mappedCaptions);
+
+                // Auto-select subtitle based on user's preferred language
+                const preferredLang = settings.subtitleLanguage?.toLowerCase() || 'en';
+                const matchingSub = mappedCaptions.find((s: any) =>
+                    s.lang.toLowerCase().includes(preferredLang) ||
+                    s.label.toLowerCase().includes(preferredLang)
+                );
+                if (matchingSub && settings.showSubtitles) {
+                    console.log('[VideoPlayer] Auto-selected subtitle:', matchingSub.label);
+                    setCurrentCaption(matchingSub.url);
+                }
             }
         };
 
@@ -347,6 +484,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     console.error('[VideoPlayer] HLS fatal error:', data);
+
+                    // Specific fix for expired CDN links on cached files
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        try {
+                            streamCache.clear();
+                        } catch (e) {
+                            console.error('Failed to clear cache for HLS reload', e);
+                        }
+                    }
+
                     setError(`Playback error: ${data.type}`);
                     hls.destroy();
                 }
@@ -601,7 +748,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, season = 1, episode = 
             }
 
             // Prefetch next episode when menu opens
-            const api = getConsumetAPI();
+            const api = getStreamAPI();
             if (api && mediaType === 'tv') {
                 const nextEp = currentEpisode + 1;
                 const title = movie.title || movie.name || '';

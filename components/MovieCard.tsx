@@ -16,7 +16,7 @@ interface MovieCardProps {
 
 const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }) => {
   const { t } = useTranslation();
-  const { myList, toggleList, getVideoState, updateVideoState, getEpisodeProgress } = useGlobalContext();
+  const { myList, toggleList, getVideoState, updateVideoState, getEpisodeProgress, getLastWatchedEpisode, top10TV, top10Movies } = useGlobalContext();
   const [isHovered, setIsHovered] = useState(false);
   const { trailerUrl, setTrailerUrl, isMuted, setIsMuted, playerRef } = useYouTubePlayer();
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -28,33 +28,40 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
   const timerRef = useRef<any>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // --- Dynamic Badge Logic ---
+  // --- Dynamic Badge Logic (strict thresholds to reduce clutter) ---
   const getBadgeInfo = () => {
+    const isTV = movie.media_type === 'tv' || (!movie.media_type && !movie.title);
+    const movieIdNum = Number(movie.id);
+
+    // Sync with New & Popular Top 10 Lists
+    if (isTV && top10TV?.includes(movieIdNum)) {
+      return { text: 'Top 10', type: 'top' };
+    }
+    if (!isTV && top10Movies?.includes(movieIdNum)) {
+      return { text: 'Top 10', type: 'top' };
+    }
+
     const dateStr = movie.release_date || movie.first_air_date;
-    if (!dateStr) return null;
-
-    const releaseDate = new Date(dateStr);
     const now = new Date();
-    // Calculate difference in days
-    const diffTime = releaseDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    // Future Release
-    if (diffDays > 0) {
-      return { text: t('badges.comingSoon'), type: "upcoming" };
-    }
+    // Check release recency
+    if (dateStr) {
+      const releaseDate = new Date(dateStr);
+      const diffTime = releaseDate.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    // Released within last 60 days
-    if (diffDays >= -60) {
-      return {
-        text: movie.media_type === 'tv' ? t('badges.newEpisodes') : t('badges.recentlyAdded'),
-        type: "new"
-      };
-    }
+      // Coming soon (within next 30 days)
+      if (diffDays > 0 && diffDays <= 30) {
+        return { text: 'Coming Soon', type: 'upcoming' };
+      }
 
-    // High Rating (Top Rated)
-    if (movie.vote_average >= 8.0) {
-      return { text: t('badges.topRated'), type: "top" };
+      // Recently added (within last 45 days)
+      if (diffDays >= -45 && diffDays <= 0) {
+        return {
+          text: isTV ? 'New Episodes' : 'Recently Added',
+          type: 'new'
+        };
+      }
     }
 
     return null;
@@ -146,7 +153,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
     switch (hoverPosition) {
       case 'left': return 'left-0 origin-left';
       case 'right': return 'right-0 origin-right';
-      default: return 'left-1/2 -ml-[150px] md:-ml-[180px] origin-center';
+      default: return 'left-1/2 -ml-[160px] md:-ml-[170px] origin-center';
     }
   };
 
@@ -172,101 +179,104 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
       className={`relative transition-all duration-300 z-10 
         ${isGrid
           ? 'w-full aspect-video cursor-pointer hover:z-50'
-          : 'flex-none w-[180px] h-[101px] md:w-[240px] md:h-[135px] cursor-pointer hover:z-[40]'
+          : 'flex-none w-[calc((100vw-3rem)/2.3)] sm:w-[calc((100vw-3rem)/3.3)] md:w-[calc((100vw-3.5rem)/4.3)] lg:w-[calc((100vw-4rem)/6.2)] aspect-video cursor-pointer hover:z-[40]'
         }`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={() => onSelect(movie)}
     >
-      {/* Base Image */}
-      <img
-        src={imageSrc}
-        className={`w-full h-full object-cover ${isBook ? 'object-[50%_30%]' : 'object-center'} ${isGrid ? 'rounded-sm' : 'rounded-sm'}`}
-        alt={movie.name || movie.title}
-        loading="lazy"
-      />
+      <div className="w-full h-full relative rounded-sm overflow-hidden">
+        {/* Base Image */}
+        <img
+          src={imageSrc}
+          className={`w-full h-full object-cover ${isBook ? 'object-[50%_30%]' : 'object-center'}`}
+          alt={movie.name || movie.title}
+          loading="lazy"
+        />
 
-      {/* Progress Bar for Continue Watching */}
-      {(() => {
+        {/* Base Title Overlay */}
+        {!isHovered && (
+          <>
+            <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex items-end justify-center pb-2 px-2 opacity-100 transition-opacity duration-300">
+              {logoUrl ? (
+                <img src={logoUrl} alt={movie.title || movie.name} className="h-full max-h-5 w-auto object-contain drop-shadow-md" />
+              ) : (
+                <h3 className={`text-white font-leaner text-center tracking-wide leading-tight drop-shadow-md line-clamp-3 mb-2 w-full px-1 ${isBook ? 'text-2xl' : 'text-xl'}`}>
+                  {movie.title || movie.name}
+                </h3>
+              )}
+            </div>
+
+            {/* Dynamic Badges on Base Card */}
+            {badge && !isBook && badge.type === 'top' && (
+              /* Top 10 — Ribbon shape (two bottom points) matching Netflix */
+              <div
+                className="absolute top-0 right-0 z-10 w-[23px] h-[32px] bg-[#E50914] flex flex-col items-center justify-start pt-[2px] pr-[1px] shadow-sm pointer-events-none"
+                style={{ clipPath: 'polygon(100% 0, 100% 100%, 100% 85%, 0 100%, 0 0)' }}
+              >
+                <div className="text-white text-[9px] font-bold tracking-tighter, leading-none mb-[2px]" style={{ fontFamily: "'Niva Bold', sans-serif", letterSpacing: '0.5px' }}>TOP</div>
+                <div className="text-white text-[13px] leading-none" style={{ fontFamily: "'Niva Bold', sans-serif", letterSpacing: '-0.5px' }}>10</div>
+              </div>
+            )}
+            {badge && !isBook && badge.type === 'new' && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center">
+                <div className="bg-[#E50914] text-white text-[8px] font-bold px-3 py-[3px] tracking-wider uppercase leading-none">
+                  {badge.text}
+                </div>
+              </div>
+            )}
+            {badge && !isBook && badge.type === 'upcoming' && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center">
+                <div className="bg-black/70 border border-white/30 text-white text-[8px] font-bold px-3 py-[3px] tracking-wider uppercase leading-none backdrop-blur-sm">
+                  {badge.text}
+                </div>
+              </div>
+            )}
+
+            {isBook && (
+              <div className="absolute top-2 left-2 bg-black/50 border border-white/40 text-white px-2 py-0.5 text-[10px] font-medium uppercase backdrop-blur-sm">
+                Comic
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Progress Bar underneath the poster */}
+      {!isHovered && (() => {
         let progress = 0;
         const mediaType = movie.media_type || (movie.title ? 'movie' : 'tv');
 
         if (mediaType === 'tv') {
-          // Logic: Check if there's any progress on the last watched episode
-          // We'd need to know *which* episode was last watched.
-          // GlobalContext doesn't easily expose "last watched episode" for list rendering efficiently without checking all.
-          // But we can check if *any* episode has progress? No.
-          // Alternative: Use the "continueWatching" list progress if available?
-          // Actually, the easiest way for TV is checking localStorage 'kinemora-last-watched-{id}' for S/E, then getEpisodeProgress.
-          try {
-            const saved = localStorage.getItem(`kinemora-last-watched-${movie.id}`);
-            if (saved) {
-              const { season, episode } = JSON.parse(saved);
-              const epProgress = getEpisodeProgress(String(movie.id), season, episode);
-              if (epProgress && epProgress.duration > 0) {
-                progress = (epProgress.time / epProgress.duration) * 100;
-              }
-            }
-          } catch (e) { }
+          const ep = getLastWatchedEpisode(String(movie.id));
+          if (ep && ep.duration > 0) {
+            progress = (ep.time / ep.duration) * 100;
+          }
         } else {
           const state = getVideoState(movie.id);
-          if (state && state.duration > 0) {
+          if (state && state.duration && state.duration > 0) {
             progress = (state.time / state.duration) * 100;
           }
         }
 
-        // Show if started (>0%) and not fully finished/credits (<95%)
-        if (progress > 0 && progress < 95) {
+        if (progress > 0 && progress < 100) {
           return (
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-600/60 z-30">
-              <div className="h-full bg-[#E50914]" style={{ width: `${progress}%` }} />
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-[80%] h-1 bg-[#333] shadow-md pointer-events-none z-0">
+              <div className="h-full bg-[#E50914]" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
             </div>
           );
         }
         return null;
       })()}
 
-      {/* Base Title Overlay (Show when not hovering OR if in grid mode) */}
-      {!isHovered && (
-        <>
-          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex items-end justify-center pb-2 px-2 opacity-100 transition-opacity duration-300">
-            {logoUrl ? (
-              <img src={logoUrl} alt={movie.title || movie.name} className="h-full max-h-8 w-auto object-contain drop-shadow-md" />
-            ) : (
-              <h3 className={`text-white font-leaner text-center tracking-wide leading-tight drop-shadow-md line-clamp-3 mb-2 w-full px-1 ${isBook ? 'text-2xl' : 'text-xl'}`}>
-                {movie.title || movie.name}
-              </h3>
-            )}
-          </div>
-
-          {/* Dynamic Badges on Base Card - hide for comics */}
-          {badge && !isBook && (
-            <div className={`absolute top-2 left-2 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-sm shadow-sm 
-                    ${badge.type === 'upcoming'
-                ? 'bg-black/60 border border-white/40 backdrop-blur-sm' // Coming Soon Style
-                : 'bg-[#E50914]' // New/Top Rated Style (Red)
-              }`}>
-              {badge.text}
-            </div>
-          )}
-
-          {/* Comic Badge - low opacity black bg + white text + white outline */}
-          {isBook && (
-            <div className="absolute top-2 left-2 bg-black/50 border border-white/40 text-white px-2 py-0.5 text-[10px] font-medium uppercase backdrop-blur-sm">
-              Comic
-            </div>
-          )}
-        </>
-      )}
-
       {/* Hover Popup - Active on all views */}
       {isHovered && (
         <div
-          className={`absolute top-[-70px] md:top-[-100px] w-[300px] md:w-[360px] bg-[#141414] rounded-sm shadow-black/80 shadow-2xl z-[40] animate-scaleIn overflow-hidden ring-1 ring-zinc-800 ${getPositionClasses()}`}
+          className={`absolute top-[-60px] md:top-[-70px] w-[280px] md:w-[300px] bg-[#181818] rounded-md shadow-[0_14px_36px_rgba(0,0,0,0.75),0_8px_16px_rgba(0,0,0,0.6)] z-[40] animate-scaleIn ring-1 ring-zinc-700/50 ${getPositionClasses()}`}
           onClick={(e) => e.stopPropagation()} // Prevent click from bubbling to base card
         >
           {/* Media Container */}
-          <div className="relative h-[170px] md:h-[200px] bg-[#141414] overflow-hidden" onClick={handleOpenModal}>
+          <div className="relative h-[135px] md:h-[157px] bg-[#141414] overflow-hidden" onClick={handleOpenModal}>
             {(trailerUrl && !isBook) ? (
               <div className="absolute top-[40%] left-1/2 w-[200%] h-[200%] -translate-x-1/2 -translate-y-1/2 pointer-events-none">
                 <YouTube
@@ -328,80 +338,83 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onSelect, isGrid = false }
               </button>
             )}
 
-            <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#141414] to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[#181818] to-transparent" />
 
             <div className="absolute bottom-3 left-4 right-12 pointer-events-none">
               {logoUrl ? (
-                <img src={logoUrl} alt="title logo" className="h-10 w-auto object-contain origin-bottom-left drop-shadow-md" />
+                <img src={logoUrl} alt="title logo" className="h-8 w-auto object-contain origin-bottom-left drop-shadow-md" />
               ) : (
-                <h4 className="text-white font-leaner text-5xl line-clamp-2 drop-shadow-md tracking-wide text-center mb-2 leading-none">{movie.title || movie.name}</h4>
+                <h4 className="text-white font-leaner text-4xl line-clamp-2 drop-shadow-md tracking-wide text-center mb-2 leading-none">{movie.title || movie.name}</h4>
               )}
             </div>
           </div>
 
           {/* Info Section */}
-          <div className="p-4 space-y-3 bg-[#141414]">
+          <div className="px-3 pt-2.5 pb-3 space-y-2.5 bg-[#181818]">
             {/* Action Buttons Row */}
             <div className="flex justify-between items-center">
-              <div className="flex space-x-2">
+              <div className="flex items-center gap-2">
                 {/* Play/Read Button */}
                 <button
                   onClick={handleOpenModal}
-                  className="bg-white text-black rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:bg-neutral-200 transition"
+                  className="bg-white text-black rounded-full w-8 h-8 md:w-9 md:h-9 flex items-center justify-center hover:bg-neutral-200 transition"
                   title={isBook ? "Read Now" : "Play"}
                 >
-                  {isBook ? <BookOpenIcon size={24} weight="fill" /> : <PlayIcon size={30} weight="fill" className="ml-0.5" />}
+                  {isBook ? <BookOpenIcon size={18} weight="fill" /> : <PlayIcon size={22} weight="fill" className="ml-0.5" />}
                 </button>
-                {/* Add to List - Outline */}
+                {/* Add to List */}
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleList(movie); }}
-                  className="border-2 border-gray-400 bg-[#2a2a2a]/60 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-gray-300 hover:border-white hover:text-white transition group"
+                  className="border-2 border-gray-500 bg-[#2a2a2a]/80 rounded-full w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-white hover:border-white transition"
                   title="Add to My List"
                 >
-                  <span className="text-lg md:text-xl group-hover:scale-100 flex items-center">{isAdded ? <CheckIcon size={20} /> : <PlusIcon size={20} />}</span>
+                  {isAdded ? <CheckIcon size={16} weight="bold" /> : <PlusIcon size={16} weight="bold" />}
+                </button>
+                {/* Rate / Thumbs Up */}
+                <button
+                  className="border-2 border-gray-500 bg-[#2a2a2a]/80 rounded-full w-8 h-8 md:w-9 md:h-9 flex items-center justify-center text-white hover:border-white transition"
+                  title="Rate"
+                >
+                  <ThumbsUpIcon size={16} weight="bold" />
                 </button>
               </div>
 
               {/* More Info - Chevron Down */}
               <button
                 onClick={handleOpenModal}
-                className="border-2 border-gray-400 bg-[#2a2a2a]/60 rounded-full w-8 h-8 md:w-10 md:h-10 flex items-center justify-center hover:border-white transition text-gray-300 hover:text-white ml-auto"
+                className="border-2 border-gray-500 bg-[#2a2a2a]/80 rounded-full w-8 h-8 md:w-9 md:h-9 flex items-center justify-center hover:border-white transition text-white"
                 title="More Info"
               >
-                <CaretDownIcon size={24} />
+                <CaretDownIcon size={18} weight="bold" />
               </button>
             </div>
 
             {/* Metadata Row */}
-            <div className="flex items-center flex-wrap gap-2 text-sm font-medium">
-              {!isBook && <span className="text-[#46d369] font-bold">{t('common.match', { score: (movie.vote_average * 10).toFixed(0) })}</span>}
-
-              {/* Age Rating */}
-              {movie.adult ? (
-                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#E50914] text-white text-[10px] font-bold">
-                  18
-                </span>
-              ) : (
-                <span className="border border-gray-400 text-gray-400 px-1.5 py-[1px] text-xs uppercase">
-                  13+
-                </span>
-              )}
-
-              {/* Duration / Seasons / Type */}
-              <span className="text-gray-400 text-xs">
-                {isBook ? (movie.media_type === 'series' ? 'Series' : 'Comic') : (movie.media_type === 'tv' ? t('common.series') : t('common.movie'))}
+            <div className="flex items-center flex-wrap gap-1.5 text-[13px] font-medium">
+              {/* Maturity Rating Badge */}
+              <span className="border border-white/40 text-white/90 px-1 py-[1px] text-[10px] font-medium">
+                {movie.adult ? 'TV-MA' : movie.vote_average >= 7.5 ? 'TV-14' : 'TV-PG'}
               </span>
 
-              {!isBook && <span className="border border-gray-500 text-gray-400 px-1 py-[0.5px] text-[9px] rounded-[2px] h-fit flex items-center">HD</span>}
+              {/* Runtime or Season count */}
+              <span className="text-white/70">
+                {isBook ? (movie.media_type === 'series' ? 'Series' : 'Comic') :
+                  movie.media_type === 'tv' ? `${Math.max(1, Math.ceil((movie.vote_count || 10) / 500))} Seasons` :
+                    movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` :
+                      `${Math.floor((movie.popularity || 100) / 10 + 80)}m`
+                }
+              </span>
+
+              {!isBook && <span className="border border-gray-500 text-gray-400 px-1 py-[0.5px] text-[9px] rounded-[2px]">HD</span>}
             </div>
 
-            {/* Genres Row */}
-            <div className="flex flex-wrap items-center gap-x-2 text-xs font-medium text-white">
+            {/* Genres Row — bullet-separated */}
+            <div className="flex flex-wrap items-center text-[12px] font-medium">
               {getGenreNames().map((genre, idx) => (
-                <div key={idx} className="flex items-center">
-                  <span className="text-gray-300 hover:text-white cursor-default">{genre}</span>
-                  {idx < getGenreNames().length - 1 && <span className="text-gray-600 ml-2 text-[8px]">•</span>}
-                </div>
+                <span key={idx} className="flex items-center">
+                  <span className="text-white/80 hover:text-white cursor-default">{genre}</span>
+                  {idx < getGenreNames().length - 1 && <span className="text-gray-500 mx-2 text-[8px]">•</span>}
+                </span>
               ))}
             </div>
           </div>

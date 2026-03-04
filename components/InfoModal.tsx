@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { XIcon, PlayIcon, CheckIcon, PlusIcon, SpeakerSlashIcon, SpeakerHighIcon } from '@phosphor-icons/react';
+import { XIcon, PlayIcon, CheckIcon, PlusIcon, SpeakerSlashIcon, SpeakerHighIcon, ThumbsUpIcon } from '@phosphor-icons/react';
 import YouTube from 'react-youtube';
 import { Movie, Episode } from '../types';
 import { IMG_PATH } from '../constants';
@@ -97,7 +97,7 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
             }
 
             // 3. Prefetch stream (user likely to click play)
-            const api = (window as any).electron?.consumet;
+            const api = (window as any).electron?.pstream;
             if (api?.prefetchStream) {
                 const releaseDate = movie.release_date || movie.first_air_date;
                 const year = releaseDate ? new Date(releaseDate).getFullYear() : undefined;
@@ -315,6 +315,12 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
                             >
                                 {isAdded ? <CheckIcon size={24} /> : <PlusIcon size={24} />}
                             </button>
+                            <button
+                                className="border-2 border-gray-500 bg-[#2a2a2a]/60 text-gray-300 rounded-full w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center hover:border-white hover:text-white transition"
+                                title="Rate"
+                            >
+                                <ThumbsUpIcon size={22} weight="bold" />
+                            </button>
                         </div>
                     </div>
 
@@ -340,9 +346,8 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
                         <div className="space-y-4">
                             {/* Metadata Row */}
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-white font-medium text-sm md:text-base mt-2">
-                                <span className="text-[#46d369] font-bold">{t('common.match', { score: ((activeMovie.vote_average || 0) * 10).toFixed(0) })}</span>
-                                <span className="text-gray-400 font-light">{year}</span>
-                                <span className="text-gray-400 font-light">{duration}</span>
+                                <span className="text-white/80">{year}</span>
+                                <span className="text-white/80">{duration}</span>
                                 <span className="border border-gray-500 px-1.5 py-0.5 text-[10px] rounded-[2px] text-gray-400 h-fit leading-none">HD</span>
                             </div>
 
@@ -364,14 +369,21 @@ const InfoModal: React.FC<InfoModalProps> = ({ movie, initialTime = 0, onClose, 
                         <div className="text-sm space-y-3 pt-2">
                             <div className="flex flex-wrap gap-1">
                                 <span className="text-gray-500">{t('common.cast')}</span>
-                                {cast.slice(0, 4).map((name, i) => (
-                                    <span key={i} className="text-white hover:underline cursor-pointer">{name}{i < cast.slice(0, 4).length - 1 ? ',' : ''}</span>
+                                {cast.slice(0, 3).map((name, i) => (
+                                    <span key={i} className="text-white hover:underline cursor-pointer">{name}{i < cast.slice(0, 3).length - 1 ? ',' : ','}</span>
                                 ))}
+                                {cast.length > 3 && <span className="text-gray-400 italic cursor-pointer hover:underline">more</span>}
                             </div>
                             <div className="flex flex-wrap gap-1">
                                 <span className="text-gray-500">{t('common.genres')}</span>
                                 <span className="text-white">{genreNames}</span>
                             </div>
+                            {activeMovie.genres && activeMovie.genres.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                    <span className="text-gray-500">This film is:</span>
+                                    <span className="text-white">{activeMovie.genres.slice(0, 3).map(g => g.name).join(', ')}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

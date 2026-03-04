@@ -1,8 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
-import YouTube from 'react-youtube';
+import Hls from 'hls.js';
 import { Movie } from '../types';
 import { IMG_PATH } from '../constants';
 import { applyYouTubeQuality } from '../hooks/useNetworkQuality';
+
+const getStreamAPI = () => (window as any).electron?.pstream;
 
 interface HeroCarouselBackgroundProps {
     movie: Movie;
@@ -48,102 +50,124 @@ const HeroCarouselBackground: React.FC<HeroCarouselBackgroundProps> = ({
     const waitingForLoopRef = useRef(false);
     const lastTimeRef = useRef(0);
 
-    // Smart video end detection - hide video visually but keep player running
+    const [streamUrl, setStreamUrl] = useState<string | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const hlsRef = useRef<Hls | null>(null);
+    const teaserStartRef = useRef(120); // start at minute 2:00 to avoid logos
+    const teaserEndRef = useRef(150);   // tease for exactly 30 seconds
+
+    // 1. Fetch genuine stream URL when showVideo is true
     useEffect(() => {
-        console.log('[HeroCarousel] Effect triggered - showVideo:', showVideo, 'isVideoReady:', isVideoReady, 'videoId:', trailerQueue[0]);
+        if (!showVideo || streamUrl) return; // avoid re-fetching
 
-        // Only reset when showVideo becomes TRUE (replay/new video), not when FALSE
-        if (showVideo) {
-            hasTriggeredHideRef.current = false;
-            hasStartedAudioFadeRef.current = false;
-            waitingForLoopRef.current = false;
-            lastTimeRef.current = 0;
-            setIsVideoHidden(false);
-        }
+        let isMounted = true;
+        const fetchStream = async () => {
+            const api = getStreamAPI();
+            if (!api) return;
 
-        if (showVideo && isVideoReady && playerRef.current) {
-            // Clear any existing interval
-            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+            const mediaType = movie.media_type || (movie.first_air_date ? 'tv' : 'movie');
+            const title = movie.name || movie.title || '';
+            const year = (movie.release_date || movie.first_air_date || '').split('-')[0];
 
-            // Check progress every 200ms
-            progressIntervalRef.current = setInterval(() => {
-                try {
-                    const player = playerRef.current;
-                    if (!player) return;
+            try {
+                console.log(`[HeroTeaser] Fetching actual stream for ${title}...`);
+                const result = await api.getStream(
+                    title,
+                    mediaType,
+                    year ? parseInt(year) : undefined,
+                    1, // season 1
+                    1, // episode 1
+                    String(movie.id)
+                );
 
-                    const currentTime = player.getCurrentTime();
-                    const duration = player.getDuration();
-
-                    // Phase 0: Start audio fade early (7 seconds before end)
-                    if (duration > 0 && currentTime >= duration - 7 && !hasStartedAudioFadeRef.current) {
-                        hasStartedAudioFadeRef.current = true;
-                        // Start fading audio early (over 1000ms)
-                        try {
-                            let vol = player.getVolume();
-                            const fadeInterval = setInterval(() => {
-                                vol -= 5; // Slower fade (5% every 50ms = 1000ms total)
-                                if (vol <= 0) {
-                                    player.setVolume(0);
-                                    clearInterval(fadeInterval);
-                                } else {
-                                    player.setVolume(vol);
-                                }
-                            }, 50);
-                        } catch (e) { }
-                    }
-
-                    // Phase 1: Hide video visually (5 seconds before end - more buffer for YouTube overlay)
-                    if (duration > 0 && currentTime >= duration - 5 && !hasTriggeredHideRef.current) {
-                        console.log('[HeroCarousel] Near end - hiding video at', currentTime, '/', duration);
-                        hasTriggeredHideRef.current = true;
-                        waitingForLoopRef.current = true;
-                        lastTimeRef.current = currentTime;
-
-                        // CRITICAL: Direct DOM hide - synchronous, no React wait!
-                        const videoLayer = document.getElementById('hero-video-layer');
-                        if (videoLayer) {
-                            videoLayer.style.display = 'none';
-                            videoLayer.style.visibility = 'hidden';
-                            videoLayer.style.opacity = '0';
-                        }
-
-                        // PAUSE the video immediately so YouTube can't show recommendations
-                        try {
-                            player.pauseVideo();
-                        } catch (e) { }
-
-                        // React state update (for proper cleanup later)
-                        setIsVideoHidden(true);
-
-                        // Trigger the end callback (shows replay button)
-                        if (onVideoEnd) onVideoEnd();
-                    }
-
-                    // Phase 2: Detect loop restart and pause
-                    if (waitingForLoopRef.current && currentTime < lastTimeRef.current - 10) {
-                        // Video has looped (time jumped back)
-                        console.log('[HeroCarousel] Video looped, pausing at', currentTime);
-                        waitingForLoopRef.current = false;
-
-                        // Wait a moment then pause
-                        setTimeout(() => {
-                            try {
-                                player.pauseVideo();
-                            } catch (e) { }
-                        }, 500);
-                    }
-
-                    lastTimeRef.current = currentTime;
-                } catch (e) {
-                    console.error('[HeroCarousel] Progress check error:', e);
+                if (isMounted && result.success && result.sources && result.sources.length > 0) {
+                    const hlsSource = result.sources.find((s: any) => s.isM3U8) || result.sources[0];
+                    console.log(`[HeroTeaser] Stream fetch complete:`, hlsSource.url);
+                    setStreamUrl(hlsSource.url);
                 }
-            }, 200);
+            } catch (err) {
+                console.error('[HeroTeaser] Failed to fetch stream teaser:', err);
+            }
+        };
+
+        fetchStream();
+
+        return () => { isMounted = false; };
+    }, [showVideo, movie, streamUrl]);
+
+    // 2. Initialize HLS native player when streamUrl arrives
+    useEffect(() => {
+        if (!streamUrl || !videoRef.current) return;
+
+        const video = videoRef.current;
+        playerRef.current = video; // Map playerRef to HTML5 Video for external volume control
+
+        if (Hls.isSupported()) {
+            const hls = new Hls({ startPosition: teaserStartRef.current });
+            hlsRef.current = hls;
+            hls.loadSource(streamUrl);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.muted = isMuted;
+                video.play().catch(e => console.warn('[HeroTeaser] Autoplay prevented:', e));
+            });
+
+            // Fallback for fatal HLS errors to fail gracefully
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.error('[HeroTeaser] Fatal HLS error, destroying teaser.');
+                    hls.destroy();
+                }
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari fallback
+            video.src = streamUrl;
+            video.currentTime = teaserStartRef.current;
+            video.muted = isMuted;
+            video.play().catch(e => console.warn('[HeroTeaser] Autoplay prevented:', e));
         }
+
+        const handleCanPlay = () => {
+            console.log('[HeroTeaser] Stream loaded, turning on visual layer.');
+            setIsVideoReady(true);
+        };
+
+        video.addEventListener('canplay', handleCanPlay);
+
+        return () => {
+            video.removeEventListener('canplay', handleCanPlay);
+            if (hlsRef.current) {
+                hlsRef.current.destroy();
+            }
+        };
+    }, [streamUrl]);
+
+    // 3. Smart Teaser Looper
+    useEffect(() => {
+        if (!showVideo || !isVideoReady || !videoRef.current) return;
+
+        const video = videoRef.current;
+        if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+
+        progressIntervalRef.current = setInterval(() => {
+            try {
+                if (video.currentTime >= teaserEndRef.current) {
+                    console.log(`[HeroTeaser] 30s tease completed, looping seamlessly to ${teaserStartRef.current}s.`);
+                    video.currentTime = teaserStartRef.current;
+                }
+
+                // If volume matches global state
+                video.muted = isMuted;
+            } catch (e) {
+                console.error('[HeroTeaser] Tease loop error:', e);
+            }
+        }, 100);
 
         return () => {
             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
         };
-    }, [showVideo, isVideoReady, trailerQueue[0]]);
+    }, [showVideo, isVideoReady, isMuted]);
 
     return (
         <>
@@ -162,82 +186,29 @@ const HeroCarouselBackground: React.FC<HeroCarouselBackgroundProps> = ({
                 className={`absolute inset-0 z-0 ${isVideoHidden ? 'invisible' : (showVideo && isVideoReady ? 'opacity-100' : 'opacity-0 transition-opacity duration-500')}`}
                 style={isVideoHidden ? { visibility: 'hidden', display: 'none' } : {}}
             >
-                {showVideo && trailerQueue.length > 0 && (
+                {showVideo && streamUrl && (
                     <div
-                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[42%] pointer-events-none z-0 opacity-60"
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[42%] pointer-events-none z-0"
                         style={{ width: videoDimensions.width, height: videoDimensions.height }}
                     >
-                        <YouTube
-                            key={`youtube-${trailerQueue[0]}-${replayCount}`}
-                            videoId={trailerQueue[0]}
+                        <video
+                            ref={videoRef}
                             className="w-full h-full object-cover"
-                            onReady={(e) => {
-                                console.log('[HeroCarousel] YouTube onReady - videoId:', trailerQueue[0], 'playlist should be:', trailerQueue[0]);
-                                playerRef.current = e.target;
-                                setIsVideoReady(true);
-                                if (isMuted) e.target.mute();
-                                else e.target.unMute();
-
-                                // Apply network-based quality
-                                applyYouTubeQuality(e.target, youtubeQuality);
-
-                                // Seamless sync: seek to saved time if same video
-                                const savedTime = onSyncCheck?.(trailerQueue[0]);
-                                if (savedTime && savedTime > 0) {
-                                    e.target.seekTo(savedTime, true);
-                                }
-
-                                if (!isHovered) {
-                                    e.target.pauseVideo();
-                                    e.target.setVolume(0);
-                                } else {
-                                    e.target.setVolume(100);
-                                }
-                            }}
-                            onEnd={(e) => {
-                                // Fallback: If YouTube's loop:1 doesn't work, manually loop
-                                console.log('[HeroCarousel] onEnd fired - manual loop fallback');
-                                try {
-                                    e.target.seekTo(0, true);
-                                    e.target.playVideo();
-                                } catch (err) {
-                                    console.error('[HeroCarousel] Manual loop failed:', err);
-                                }
-                            }}
-                            onStateChange={(e) => {
-                                if (e.data === 1) setIsVideoReady(true);
-                            }}
-                            onError={(e) => {
-                                setTrailerQueue(prev => prev.slice(1));
-                                if (trailerQueue.length <= 1) setShowVideo(false);
-                            }}
-                            opts={{
-                                width: '100%',
-                                height: '100%',
-                                playerVars: {
-                                    autoplay: 1,
-                                    controls: 0,
-                                    disablekb: 1,
-                                    loop: 1,
-                                    playlist: trailerQueue[0],
-                                    modestbranding: 1,
-                                    rel: 0,
-                                    iv_load_policy: 3,
-                                    fs: 0,
-                                    cc_load_policy: 1,
-                                    cc_lang_pref: 'en',
-                                    hl: 'en',
-                                }
-                            }}
+                            playsInline
+                            webkit-playsinline="true"
+                            muted={isMuted} // fallback
                         />
                     </div>
                 )}
             </div>
 
-            {/* Minimal Gradients - Very subtle for hero brightness */}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/5 via-transparent to-transparent z-10 pointer-events-none" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#141414]/60 via-transparent to-transparent z-10 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#141414] to-transparent z-10 pointer-events-none" />
+            {/* Netflix-style deep vignette gradients */}
+            {/* Left side vignette - subtle */}
+            <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-transparent z-10 pointer-events-none" />
+            {/* Bottom vignette - deep, smooth fade into #141414 */}
+            <div className="absolute inset-0 z-10 pointer-events-none" style={{
+                background: 'linear-gradient(to top, #141414 0%, #14141499 15%, #14141433 30%, transparent 50%)'
+            }} />
         </>
     );
 };

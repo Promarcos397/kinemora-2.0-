@@ -17,6 +17,13 @@ interface EpisodeProgress {
   updatedAt: number;
 }
 
+type MovieRating = 'dislike' | 'like' | 'love';
+
+interface LikedEntry {
+  movie: Movie;
+  rating: MovieRating;
+}
+
 interface GlobalContextType {
   myList: Movie[];
   continueWatching: Movie[];
@@ -31,7 +38,15 @@ interface GlobalContextType {
   // Episode-specific progress tracking
   updateEpisodeProgress: (showId: number | string, season: number, episode: number, time: number, duration: number) => void;
   getEpisodeProgress: (showId: number | string, season: number, episode: number) => EpisodeProgress | undefined;
-  getLastWatchedEpisode: (showId: number | string) => { season: number; episode: number; time: number } | undefined;
+  getLastWatchedEpisode: (showId: number | string) => { season: number; episode: number; time: number; duration: number } | undefined;
+  top10TV: number[];
+  top10Movies: number[];
+  // Liked movies system
+  rateMovie: (movie: Movie, rating: MovieRating) => void;
+  getMovieRating: (movieId: number | string) => MovieRating | undefined;
+  getLikedMovies: () => LikedEntry[];
+  isKidsMode: boolean;
+  setIsKidsMode: (mode: boolean) => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -84,6 +99,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   });
 
+  const [isKidsMode, setIsKidsMode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('kinemora-kids');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kinemora-kids', JSON.stringify(isKidsMode));
+  }, [isKidsMode]);
+
   // Video Sync State (Persisted) - Stores movie progress
   const [videoStates, setVideoStates] = useState<{ [key: string]: VideoState }>(() => {
     try {
@@ -98,6 +126,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [episodeProgress, setEpisodeProgress] = useState<{ [key: string]: EpisodeProgress }>(() => {
     try {
       const saved = localStorage.getItem('kinemora-episode-progress');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Liked Movies State (dislike / like / love)
+  const [likedMovies, setLikedMovies] = useState<Record<string, LikedEntry>>(() => {
+    try {
+      const saved = localStorage.getItem('kinemora-liked');
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -129,9 +167,32 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     localStorage.setItem('kinemora-video-states', JSON.stringify(videoStates));
   }, [videoStates]);
 
+  // Persist Liked Movies
+  useEffect(() => {
+    localStorage.setItem('kinemora-liked', JSON.stringify(likedMovies));
+  }, [likedMovies]);
+
   // Sync API language with settings
   useEffect(() => {
     setApiLanguage(settings.displayLanguage);
+  }, [settings.displayLanguage]);
+
+  // Top 10 Tracking
+  const [top10TV, setTop10TV] = useState<number[]>([]);
+  const [top10Movies, setTop10Movies] = useState<number[]>([]);
+
+  useEffect(() => {
+    import('../constants').then(({ REQUESTS }) => {
+      import('../services/api').then(({ fetchData }) => {
+        // Run requests asynchronously in the background
+        fetchData(REQUESTS.fetchTrendingTV).then(res => {
+          if (res) setTop10TV(res.slice(0, 10).map((m: any) => m.id));
+        });
+        fetchData(REQUESTS.fetchTrendingMovies).then(res => {
+          if (res) setTop10Movies(res.slice(0, 10).map((m: any) => m.id));
+        });
+      });
+    });
   }, [settings.displayLanguage]);
 
   const toggleList = useCallback((movie: Movie) => {
@@ -200,21 +261,43 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     return episodeProgress[key];
   }, [episodeProgress]);
 
-  const getLastWatchedEpisode = useCallback((showId: number | string): { season: number; episode: number; time: number } | undefined => {
+  const getLastWatchedEpisode = useCallback((showId: number | string): { season: number; episode: number; time: number; duration: number } | undefined => {
     // Find the most recently watched episode for this show
     const showPrefix = `${showId}-S`;
-    let latest: { season: number; episode: number; time: number; updatedAt: number } | undefined;
+    let latest: { season: number; episode: number; time: number; duration: number; updatedAt: number } | undefined;
 
     for (const [key, value] of Object.entries(episodeProgress)) {
       if (key.startsWith(showPrefix)) {
         if (!latest || value.updatedAt > latest.updatedAt) {
-          latest = { season: value.season, episode: value.episode, time: value.time, updatedAt: value.updatedAt };
+          latest = { season: value.season, episode: value.episode, time: value.time, duration: value.duration || 0, updatedAt: value.updatedAt };
         }
       }
     }
 
-    return latest ? { season: latest.season, episode: latest.episode, time: latest.time } : undefined;
+    return latest ? { season: latest.season, episode: latest.episode, time: latest.time, duration: latest.duration } : undefined;
   }, [episodeProgress]);
+
+  // Liked movies functions
+  const rateMovie = useCallback((movie: Movie, rating: MovieRating) => {
+    setLikedMovies(prev => {
+      const key = String(movie.id);
+      // If same rating, toggle it off
+      if (prev[key]?.rating === rating) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: { movie, rating } };
+    });
+  }, []);
+
+  const getMovieRating = useCallback((movieId: number | string): MovieRating | undefined => {
+    return likedMovies[String(movieId)]?.rating;
+  }, [likedMovies]);
+
+  const getLikedMovies = useCallback((): LikedEntry[] => {
+    return Object.values(likedMovies).filter(e => e.rating === 'like' || e.rating === 'love');
+  }, [likedMovies]);
 
   return (
     <GlobalContext.Provider value={{
@@ -230,7 +313,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       clearVideoState,
       updateEpisodeProgress,
       getEpisodeProgress,
-      getLastWatchedEpisode
+      getLastWatchedEpisode,
+      top10TV,
+      top10Movies,
+      rateMovie,
+      getMovieRating,
+      getLikedMovies,
+      isKidsMode,
+      setIsKidsMode
     }}>
       {children}
     </GlobalContext.Provider>

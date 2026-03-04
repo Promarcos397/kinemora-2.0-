@@ -23,5 +23,18 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "src",
+    "components",
+    "services",
+    "context",
+    "hooks",
+    "utils",
+    "electron"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

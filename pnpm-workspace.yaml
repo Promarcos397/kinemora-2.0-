@@ -1,0 +1,6 @@
+onlyBuiltDependencies:
+  - '@p-stream/providers'
+  - electron
+  - electron-winstaller
+  - esbuild
+  - sharp

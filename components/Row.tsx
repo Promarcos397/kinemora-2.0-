@@ -25,7 +25,6 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
     }
 
     if (fetchUrl) {
-      // Reset state for new URL
       setMovies([]);
       setPage(1);
       setHasMore(true);
@@ -52,7 +51,6 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
     setIsFetching(true);
     const nextPage = page + 1;
 
-    // Construct URL with next page
     let url = fetchUrl;
     if (url.includes('page=')) {
       url = url.replace(/page=\d+/, `page=${nextPage}`);
@@ -81,26 +79,35 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
       }
     } catch (error) {
       console.error("Error loading more pages:", error);
-      setHasMore(false); // Stop trying on error
+      setHasMore(false);
     } finally {
       setIsFetching(false);
     }
   };
 
-  const handleScroll = () => {
-    if (rowRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = rowRef.current;
-      // Trigger load when within 1.5 screens of the end
-      if (scrollLeft + clientWidth >= scrollWidth - (clientWidth * 1.5)) {
-        loadMore();
-      }
-    }
+  const getScrollMetrics = () => {
+    if (!rowRef.current) return null;
+
+    const container = rowRef.current;
+    const cards = container.querySelectorAll('.movie-card-container');
+    if (cards.length === 0) return null;
+
+    const firstCard = cards[0] as HTMLElement;
+    const style = window.getComputedStyle(firstCard);
+    const marginRight = parseFloat(style.marginRight) || 0;
+
+    const totalCardWidth = firstCard.offsetWidth + marginRight;
+    const visibleWidth = container.clientWidth;
+
+    const visibleCardsCount = Math.floor(visibleWidth / totalCardWidth);
+    const cardsToScroll = Math.max(1, visibleCardsCount);
+    return cardsToScroll * totalCardWidth;
   };
 
   const scroll = (direction: 'left' | 'right') => {
     if (rowRef.current) {
-      const { clientWidth } = rowRef.current;
-      const scrollAmount = clientWidth * 0.75;
+      const scrollAmount = getScrollMetrics();
+      if (!scrollAmount) return;
 
       if (direction === 'left') {
         rowRef.current.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
@@ -110,43 +117,46 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
     }
   };
 
-  // Only hide if initial load is done and no movies found
   if (!initialLoad && movies.length === 0) return null;
 
   return (
     <div
-      className="group relative my-4 md:my-6 space-y-2 z-10 hover:z-50 transition-all duration-300"
+      className="group relative my-3 md:my-4 space-y-1 z-10 hover:z-50 transition-all duration-300"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <h2 className="px-6 md:px-14 lg:px-20 text-lg sm:text-xl md:text-2xl font-bold text-[#e5e5e5] hover:text-white transition cursor-pointer flex items-center group/title w-fit tracking-wide">
-        {title}
-        <span className="text-xs text-cyan-500 ml-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-300 flex items-center font-semibold">
-          {t('rows.exploreAll')} <CaretRightIcon size={14} className="ml-1" />
-        </span>
-      </h2>
+      {/* Row Title */}
+      <div className="flex items-center justify-between px-6 md:px-14 lg:px-16">
+        <h2 className="text-sm sm:text-base md:text-lg font-bold text-[#e5e5e5] hover:text-white transition cursor-pointer flex items-center group/title w-fit tracking-wide">
+          {title}
+          <span className="text-xs text-cyan-500 ml-2 opacity-0 group-hover/title:opacity-100 transition-opacity duration-300 flex items-center font-semibold">
+            {t('rows.exploreAll')} <CaretRightIcon size={14} className="ml-1" />
+          </span>
+        </h2>
+        {/* Pagination indicator dashes */}
+        {!initialLoad && movies.length > 6 && (
+          <div className="flex items-center gap-[3px] opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            {Array.from({ length: Math.min(Math.ceil(movies.length / 6), 8) }).map((_, i) => (
+              <div key={i} className={`h-[2px] w-3 rounded-full transition-colors duration-200 ${i === 0 ? 'bg-white/90' : 'bg-white/30'}`} />
+            ))}
+          </div>
+        )}
+      </div>
 
+      {/* Row Content — no overflow-hidden so modal scale works */}
       <div className="relative group/row">
-        {/* Hover Hit Box */}
-        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[101px] md:h-[135px] z-0 pointer-events-auto bg-transparent" />
-
-        {/* Left Button */}
-        <div
-          className={`absolute top-1/2 -translate-y-1/2 left-0 z-50 h-[101px] md:h-[135px] w-10 md:w-16 lg:w-20 bg-black/50 hover:bg-black/70 cursor-pointer flex items-center justify-center transition-all duration-300 rounded-r-md pointer-events-none ${initialLoad ? 'opacity-0' : 'opacity-0 group-hover/row:opacity-100 group-hover/row:pointer-events-auto'}`}
-          onClick={() => scroll('left')}
-        >
-          <CaretLeftIcon size={48} className="text-white hover:scale-125 transition drop-shadow-lg" />
-        </div>
-
         {/* Scroll Container */}
         <div
           ref={rowRef}
-          onScroll={handleScroll}
-          className="flex overflow-x-scroll scrollbar-hide space-x-2 py-32 -my-32 px-6 md:px-14 lg:px-20 w-full pointer-events-auto relative z-10 scroll-smooth"
+          className="flex overflow-x-scroll scrollbar-hide py-32 -my-32 w-full pointer-events-auto relative z-10 scroll-smooth"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
+          {/* Left spacer mimicking exact padding without scroll-padding limitations */}
+          <div className="flex-none w-6 md:w-14 lg:w-16 pointer-events-none"></div>
+
           {initialLoad
             ? Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="relative flex-none w-[180px] h-[101px] md:w-[240px] md:h-[135px] bg-[#222] rounded-sm overflow-hidden border border-white/5 pointer-events-auto">
+              <div key={i} className="movie-card-container relative flex-none w-[calc((100vw-3rem)/2.3)] sm:w-[calc((100vw-3rem)/3.3)] md:w-[calc((100vw-3.5rem)/4.3)] lg:w-[calc((100vw-4rem)/6.3)] aspect-video bg-[#222] rounded-sm overflow-hidden border border-white/5 pointer-events-auto mr-1.5 md:mr-2 lg:mr-2.5">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
                 <div className="absolute bottom-3 left-3 right-3 space-y-2 opacity-50">
                   <div className="h-2 bg-gray-600 rounded w-3/4"></div>
@@ -154,26 +164,37 @@ const Row: React.FC<RowProps> = ({ title, fetchUrl, data, onSelect }) => {
                 </div>
               </div>
             ))
-            : movies.map((movie) => (movie.backdrop_path || movie.poster_path) && (
-              <div key={movie.id} className="pointer-events-auto">
+            : movies.slice(0, 36).map((movie) => (movie.backdrop_path || movie.poster_path) && (
+              <div key={movie.id} className="movie-card-container pointer-events-auto mr-1.5 md:mr-2 lg:mr-2.5">
                 <MovieCard movie={movie} onSelect={onSelect} />
               </div>
             ))
           }
-          {/* Small loading indicator at the end */}
-          {isFetching && !initialLoad && (
-            <div className="flex-none w-[100px] flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          )}
+
+          {/* Right spacer for symmetrical scrolling ending */}
+          <div className="flex-none w-6 md:w-14 lg:w-16 pointer-events-none"></div>
         </div>
 
-        {/* Right Button */}
+        {/* Left Arrow — matches exact height of cards (top-32, bottom-32 because of py-32 container padding) and width of spacer */}
         <div
-          className={`absolute top-1/2 -translate-y-1/2 right-0 z-50 h-[101px] md:h-[135px] w-10 md:w-16 lg:w-20 bg-black/50 hover:bg-black/70 cursor-pointer flex items-center justify-center transition-all duration-300 rounded-l-md pointer-events-none ${initialLoad ? 'opacity-0' : 'opacity-0 group-hover/row:opacity-100 group-hover/row:pointer-events-auto'}`}
+          className={`absolute top-32 bottom-32 left-0 z-50 w-6 md:w-14 lg:w-16 items-center justify-center cursor-pointer
+            bg-transparent hover:bg-[#141414]/80 flex
+            transition-all duration-300 pointer-events-none rounded-r-md
+            ${initialLoad ? 'opacity-0' : 'opacity-0 group-hover/row:opacity-100 group-hover/row:pointer-events-auto'}`}
+          onClick={() => scroll('left')}
+        >
+          <CaretLeftIcon size={36} className="text-white hover:scale-125 transition drop-shadow-lg" />
+        </div>
+
+        {/* Right Arrow — limits height exactly to the image and width to the padding spacer */}
+        <div
+          className={`absolute top-32 bottom-32 right-0 z-50 w-6 md:w-14 lg:w-16 items-center justify-center cursor-pointer
+            bg-transparent hover:bg-[#141414]/80 flex
+            transition-all duration-300 pointer-events-none rounded-l-md
+            ${initialLoad ? 'opacity-0' : 'opacity-0 group-hover/row:opacity-100 group-hover/row:pointer-events-auto'}`}
           onClick={() => scroll('right')}
         >
-          <CaretRightIcon size={48} className="text-white hover:scale-125 transition drop-shadow-lg" />
+          <CaretRightIcon size={36} className="text-white hover:scale-125 transition drop-shadow-lg" />
         </div>
       </div>
     </div>

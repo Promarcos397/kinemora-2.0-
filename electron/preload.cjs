@@ -23,17 +23,16 @@ contextBridge.exposeInMainWorld('electron', {
         },
     },
 
-    // Consumet API - Primary streaming method
-    consumet: {
-        getStream: (title, type, year, season, episode) =>
-            ipcRenderer.invoke('consumet-stream', { title, type, year, season, episode }),
-        prefetchStream: (title, type, year, season, episode) =>
-            ipcRenderer.invoke('consumet-prefetch', { title, type, year, season, episode }),
+    pstream: {
+        getStream: (title, type, year, season, episode, tmdbId) =>
+            ipcRenderer.invoke('pstream-stream', { title, type, year, season, episode, tmdbId }),
+        prefetchStream: (title, type, year, season, episode, tmdbId) =>
+            ipcRenderer.invoke('pstream-prefetch', { title, type, year, season, episode, tmdbId }),
         // Book Service (Manga/Comics)
         books: {
-            search: (query, type) => ipcRenderer.invoke('consumet-books-search', { query, type }),
-            getInfo: (id, type) => ipcRenderer.invoke('consumet-books-info', { id, type }),
-            getPages: (chapterId, type) => ipcRenderer.invoke('consumet-books-read', { chapterId, type })
+            search: (query, type) => ipcRenderer.invoke('pstream-books-search', { query, type }),
+            getInfo: (id, type) => ipcRenderer.invoke('pstream-books-info', { id, type }),
+            getPages: (chapterId, type) => ipcRenderer.invoke('pstream-books-read', { chapterId, type })
         }
     },
 

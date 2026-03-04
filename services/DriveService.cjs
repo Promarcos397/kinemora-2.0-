@@ -4,7 +4,15 @@ const path = require('path');
 const { app } = require('electron');
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
-const KEY_PATH = path.join(app.getAppPath(), 'credentials.json');
+
+// Correct dev/prod detection for Electron
+// app.isPackaged is FALSE in dev mode, TRUE in production builds
+const isDev = !app.isPackaged;
+const KEY_PATH = isDev
+    ? path.join(__dirname, '../credentials.json')
+    : path.join(process.resourcesPath, 'credentials.json');
+
+console.log('[Drive] isDev:', isDev, 'Looking for credentials at:', KEY_PATH);
 
 async function downloadFile(fileId) {
     try {

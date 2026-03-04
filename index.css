@@ -10,6 +10,11 @@
   src: url('./src/assets/fonts/LeanerBold.otf') format('opentype');
 }
 
+@font-face {
+  font-family: 'Niva Bold';
+  src: url('./src/assets/fonts/Niva-Bold _.ttf') format('truetype');
+}
+
 .font-leaner {
   font-family: 'Leaner Bold', sans-serif;
 }
@@ -30,10 +35,10 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* Custom Scrollbar Design */
+/* Custom Scrollbar Design — sleek Netflix-style */
 ::-webkit-scrollbar {
-  width: 16px;
-  height: 16px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -41,9 +46,9 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #4e4e4e;
+  background-color: #3a3a3a;
   border-radius: 10px;
-  border: 4px solid #141414;
+  border: 2px solid #141414;
 }
 
 ::-webkit-scrollbar-thumb:hover {

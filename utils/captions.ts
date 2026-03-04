@@ -1,9 +1,21 @@
 import DOMPurify from "dompurify";
-import { convert, detect, parse } from "subsrt-ts";
+import { parse } from "subsrt-ts";
 import { ContentCaption } from "subsrt-ts/dist/types/handler";
 
 export type CaptionCueType = ContentCaption;
-export const sanitize = DOMPurify.sanitize;
+
+// Safe sanitize for both browser and potential ESM misconfigurations
+export const sanitize = (html: string, config?: any) => {
+    try {
+        const purifier = DOMPurify.sanitize || (DOMPurify as any).default?.sanitize || DOMPurify;
+        if (typeof purifier === 'function') {
+            return purifier(html, config);
+        }
+    } catch (e) {
+        console.warn('DOMPurify failed, falling back to basic string', e);
+    }
+    return html;
+};
 
 export function captionIsVisible(
     start: number,
@@ -23,26 +35,20 @@ export function makeQueId(index: number, start: number, end: number): string {
     return `${index}-${start}-${end}`;
 }
 
-export function convertSubtitlesToVtt(text: string): string {
-    const textTrimmed = text.trim();
-    if (textTrimmed === "") {
-        throw new Error("Given text is empty");
-    }
-    const vtt = convert(textTrimmed, "vtt");
-    if (detect(vtt) === "") {
-        throw new Error("Invalid subtitle format");
-    }
-    return vtt;
-}
-
-export function parseVttSubtitles(vtt: string) {
-    return parse(vtt).filter((cue) => cue.type === "caption") as CaptionCueType[];
-}
-
 export function parseSubtitles(
     text: string,
     _language?: string,
 ): CaptionCueType[] {
-    const vtt = convertSubtitlesToVtt(text);
-    return parseVttSubtitles(vtt);
+    const textTrimmed = text.trim();
+    if (!textTrimmed) return [];
+
+    try {
+        // Use subsrt-ts parse directly, which auto-detects formats securely 
+        // Handles SRT, VTT, SBV, JSON, etc.
+        const cues = parse(textTrimmed);
+        return cues.filter((cue) => cue.type === "caption") as CaptionCueType[];
+    } catch (e) {
+        console.error("Failed to parse subtitles:", e);
+        return [];
+    }
 }

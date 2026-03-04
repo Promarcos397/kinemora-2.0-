@@ -29,3 +29,9 @@ credentials.json
 *.exe
 *.dmg
 *.AppImage
+# Specific kinemora build caches & references
+projec/
+references/
+electron/dist/
+coverage/
+row-scroll-behaviour-video-recording-frames/

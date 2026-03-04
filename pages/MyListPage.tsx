@@ -13,7 +13,7 @@ type FilterType = 'all' | 'movie' | 'tv' | 'comic';
 type SortType = 'date_added' | 'title' | 'rating' | 'release_date';
 
 const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
-  const { myList } = useGlobalContext();
+  const { myList, isKidsMode } = useGlobalContext();
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterType>('all');
   const [sort, setSort] = useState<SortType>('date_added');
@@ -22,7 +22,16 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
     // Create a shallow copy to sort/filter
     let list = [...myList];
 
-    // 1. Filter
+    // Kids Filter
+    if (isKidsMode) {
+      list = list.filter(m => {
+        // Kids genres ID matching: 10762 (Kids TV), 10751 (Family), 16 (Animation)
+        if (!m.genre_ids) return false;
+        return m.genre_ids.some(id => [10762, 10751, 16].includes(id));
+      });
+    }
+
+    // 1. Media Type Filter
     if (filter !== 'all') {
       list = list.filter(m => {
         const type = m.media_type || (m.title ? 'movie' : 'tv');
@@ -65,44 +74,10 @@ const MyListPage: React.FC<PageProps> = ({ onSelectMovie }) => {
   }, [myList, filter, sort]);
 
   return (
-    <div className="pt-24 px-6 md:px-14 lg:px-20 pb-12 min-h-screen">
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
-        <h2 className="text-2xl md:text-3xl font-bold text-white">{t('nav.myList')}</h2>
-
-        {myList.length > 0 && (
-          <div className="flex flex-wrap items-center gap-4 text-sm animate-fadeIn">
-            {/* Filter Group */}
-            <div className="flex bg-[#222] rounded p-1 border border-white/10">
-              {(['all', 'movie', 'tv', 'comic'] as FilterType[]).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`px-3 md:px-4 py-1.5 rounded transition capitalize text-xs md:text-sm ${filter === f ? 'bg-white text-black font-bold' : 'text-gray-400 hover:text-white'}`}
-                >
-                  {f === 'all' ? t('list.all') : f === 'movie' ? t('list.movies') : f === 'tv' ? t('list.shows') : 'Reads'}
-                </button>
-              ))}
-            </div>
-
-            {/* Sort Dropdown */}
-            <div className="relative group">
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortType)}
-                className="appearance-none bg-[#222] border border-white/10 text-white pl-3 md:pl-4 pr-8 md:pr-10 py-1.5 md:py-2 rounded focus:outline-none cursor-pointer hover:bg-[#333] transition text-xs md:text-sm"
-              >
-                <option value="date_added">{t('sort.dateAdded')}</option>
-                <option value="release_date">{t('sort.releaseDate')}</option>
-                <option value="rating">{t('sort.rating')}</option>
-                <option value="title">{t('sort.title')}</option>
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                <CaretDownIcon size={16} className="text-gray-400" />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+    <div className="pt-28 px-6 md:px-14 lg:px-20 pb-12 min-h-screen">
+      <h2 className="text-2xl md:text-3xl font-normal text-white mb-10 tracking-wide">
+        {isKidsMode ? 'Kids List' : 'My List'}
+      </h2>
 
       {myList.length > 0 ? (
         processedList.length > 0 ? (
